@@ -1,0 +1,27 @@
+{% extends 'courses/base.html' %}
+
+{% block title %}首页 - 计算机考研题库{% endblock %}
+
+{% block content %}
+<div class="hero-section text-center mb-5">
+    <h1 class="display-4">计算机考研题库</h1>
+    <p class="lead">提供全面的计算机考研复习资料和练习题</p>
+</div>
+
+<div class="row">
+    {% for book in books %}
+    <div class="col-md-6 col-lg-3">
+        <div class="card h-100">
+            {% if book.cover_image %}
+            <img src="{{ book.cover_image.url }}" class="card-img-top" alt="{{ book.title }}">
+            {% endif %}
+            <div class="card-body">
+                <h5 class="card-title">{{ book.title }}</h5>
+                <p class="card-text">{{ book.description }}</p>
+                <a href="{% url 'courses:book_detail' book.id %}" class="btn btn-primary">开始学习</a>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %} 
