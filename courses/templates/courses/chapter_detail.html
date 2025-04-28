@@ -1,4 +1,5 @@
 {% extends 'courses/base.html' %}
+{% load markdownify %}
 
 {% block title %}{{ chapter.title }} - {{ chapter.book.title }} - 计算机考研题库{% endblock %}
 
@@ -7,24 +8,17 @@
     <ol class="breadcrumb">
         <li class="breadcrumb-item"><a href="{% url 'courses:index' %}">首页</a></li>
         <li class="breadcrumb-item"><a href="{% url 'courses:book_detail' chapter.book.id %}">{{ chapter.book.title }}</a></li>
-        <li class="breadcrumb-item active">第{{ chapter.number }}章 {{ chapter.title }}</li>
+        <li class="breadcrumb-item active">{{ chapter.title }}</li>
     </ol>
 </nav>
 
 <div class="row">
     <div class="col-md-8">
-        <h1 class="mb-4">第{{ chapter.number }}章 {{ chapter.title }}</h1>
-        {% if chapter.introduction %}
-        <div class="card mb-4">
-            <div class="card-body">
-                <h5 class="card-title">章节介绍</h5>
-                <p class="card-text">{{ chapter.introduction }}</p>
-            </div>
-        </div>
-        {% endif %}
+        <h1 class="mb-4">{{ chapter.title }}</h1>
         
         <div class="list-group">
             {% for section in sections %}
+            {% if section.title != "章节介绍" and section.number != chapter.number|stringformat:".1f"|add:".0" %}
             <a href="{% url 'courses:section_detail' section.id %}" class="list-group-item list-group-item-action">
                 <div class="d-flex w-100 justify-content-between">
                     <h5 class="mb-1">{{ section.number }} {{ section.title }}</h5>
@@ -34,6 +28,7 @@
                     </small>
                 </div>
             </a>
+            {% endif %}
             {% endfor %}
         </div>
     </div>
@@ -51,4 +46,4 @@
         </div>
     </div>
 </div>
-{% endblock %} 
+{% endblock %}

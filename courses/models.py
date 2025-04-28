@@ -29,9 +29,19 @@ class Chapter(models.Model):
         return f"{self.book.title} - 第{self.number}章 {self.title}"
 
 class Section(models.Model):
+    SECTION_TYPES = (
+        ('content', '内容小节'),
+        ('introduction', '章节介绍'),
+        ('summary', '章节小结'),
+        ('faq', '常见问题/疑难点'),
+        ('other', '其他'),
+    )
+    
     chapter = models.ForeignKey(Chapter, on_delete=models.CASCADE, related_name='sections', verbose_name='所属章节')
     number = models.CharField(max_length=10, verbose_name='小节号')  # 如1.1, 1.2等
     title = models.CharField(max_length=200, verbose_name='小节标题')
+    section_type = models.CharField(max_length=20, choices=SECTION_TYPES, default='content', verbose_name='小节类型')
+    content = models.TextField(blank=True, verbose_name='小节内容 (Markdown)')
     
     class Meta:
         verbose_name = '小节'

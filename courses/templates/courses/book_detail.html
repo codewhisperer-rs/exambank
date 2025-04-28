@@ -18,12 +18,11 @@
         <div class="list-group">
             {% for chapter in chapters %}
             <a href="{% url 'courses:chapter_detail' chapter.id %}" class="list-group-item list-group-item-action">
-                <div class="d-flex w-100 justify-content-between">
-                    <h5 class="mb-1">第{{ chapter.number }}章 {{ chapter.title }}</h5>
-                    <small class="text-muted">{{ chapter.sections.count }} 个小节</small>
+                <div style="text-align: right;">
+                <small class="text-muted">{{ chapter.sections.count }} 个小节</small>
                 </div>
                 {% if chapter.introduction %}
-                <p class="mb-1">{{ chapter.introduction }}</p>
+                <div class="mb-1 chapter-introduction">{{ chapter.introduction|safe }}</div>
                 {% endif %}
             </a>
             {% endfor %}
@@ -39,10 +38,10 @@
                 </div>
                 <p class="card-text">
                     <strong>总章节数：</strong> {{ chapters.count }}<br>
-                    <strong>总小节数：</strong> {{ chapters.count }}
+                    <strong>总小节数：</strong> {{ total_sections }} 个
                 </p>
             </div>
         </div>
     </div>
 </div>
-{% endblock %} 
+{% endblock %}

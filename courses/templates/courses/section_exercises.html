@@ -1,0 +1,156 @@
+{% extends 'courses/base.html' %}
+
+{% block title %}{{ section.title }} - 习题练习 - 计算机考研题库{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="{% url 'courses:index' %}">首页</a></li>
+        <li class="breadcrumb-item"><a href="{% url 'courses:book_detail' section.chapter.book.id %}">{{ section.chapter.book.title }}</a></li>
+        <li class="breadcrumb-item"><a href="{% url 'courses:chapter_detail' section.chapter.id %}">第{{ section.chapter.number }}章 {{ section.chapter.title }}</a></li>
+        <li class="breadcrumb-item"><a href="{% url 'courses:section_detail' section.id %}">{{ section.number }} {{ section.title }}</a></li>
+        <li class="breadcrumb-item active">习题练习</li>
+    </ol>
+</nav>
+
+<div class="row">
+    <div class="col-md-9">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1>{{ section.number }} {{ section.title }} - 习题练习</h1>
+            <a href="{% url 'courses:section_detail' section.id %}" class="btn btn-outline-primary">
+                <i class="bi bi-arrow-left"></i> 返回知识点
+            </a>
+        </div>
+        
+        <!-- 习题部分 -->
+        {% if grouped_exercises %}
+            {% for exercise_type, group in grouped_exercises.items %}
+                <div id="{{ exercise_type }}" class="mb-5 exercise-group">
+                    <h2 class="h4 mb-4 fw-bold text-primary p-2 bg-light border-start border-5 border-primary rounded">{{ group.title }}</h2>
+                    {% for exercise in group.exercises %}
+                    <div class="exercise-card card mb-4">
+                        <div class="card-body">
+                            <h5 class="card-title">
+                                题 {{ exercise.number }}. 
+                                <span class="exercise-content">{{ exercise.content|safe }}</span>
+                            </h5>
+                        
+                            {% if exercise.type == 'single' or exercise.type == 'multiple' %}
+                            <div class="options mt-3">
+                                {% if exercise.options_dict %}
+                                    {% for key, value in exercise.options_dict.items %}
+                                    <div class="form-check option-label mb-2">
+                                        {% if exercise.type == 'single' %}
+                                        <input class="form-check-input" type="radio" name="exercise_{{ exercise.id }}" id="option_{{ exercise.id }}_{{ key }}" value="{{ key }}">
+                                        {% else %}
+                                        <input class="form-check-input" type="checkbox" name="exercise_{{ exercise.id }}" id="option_{{ exercise.id }}_{{ key }}" value="{{ key }}">
+                                        {% endif %}
+                                        <label class="form-check-label w-100" for="option_{{ exercise.id }}_{{ key }}">
+                                            <strong>{{ key }}.</strong> {{ value|safe }}
+                                        </label>
+                                    </div>
+                                    {% endfor %}
+                                {% else %}
+                                    <div class="alert alert-warning">
+                                        此题暂无选项数据
+                                    </div>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                        
+                            <div class="answer mt-3" style="display: none;" id="answer_{{ exercise.id }}">
+                                <hr>
+                                <h6>答案：<span class="badge bg-success">{{ exercise.answer }}</span></h6>
+                                {% if exercise.explanation %}
+                                <h6>解析：</h6>
+                                <div class="explanation-content markdown-body">{{ exercise.explanation|safe }}</div>
+                                {% endif %}
+                            </div>
+                        
+                            <button class="btn btn-sm btn-outline-primary mt-3 show-answer" data-target="#answer_{{ exercise.id }}">
+                                查看答案
+                            </button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            {% endfor %}
+        {% else %}
+        <div class="alert alert-info">
+            本节暂无习题
+        </div>
+        {% endif %}
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card sticky-top" style="top: 20px;">
+            <div class="card-body">
+                <h5 class="card-title">练习信息</h5>
+                <p class="card-text">
+                    <strong>所属教材：</strong> {{ section.chapter.book.title }}<br>
+                    <strong>所属章节：</strong> 第{{ section.chapter.number }}章 {{ section.chapter.title }}<br>
+                    <strong>小节名称：</strong> {{ section.number }} {{ section.title }}<br>
+                    <strong>习题数量：</strong> {{ total_count }} 题
+                </p>
+                <hr>
+                
+                <!-- 题型导航 -->
+                {% if grouped_exercises %}
+                <h6 class="mb-3">题型导航：</h6>
+                <div class="list-group mb-3">
+                    {% for exercise_type, group in grouped_exercises.items %}
+                    <a href="#{{ exercise_type }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                        <span>{{ group.title }}</span>
+                        <span class="badge bg-primary rounded-pill">{{ group.exercises|length }}</span>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                
+                <div class="d-grid">
+                    <a href="{% url 'courses:section_detail' section.id %}" class="btn btn-primary">
+                        <i class="bi bi-book"></i> 返回学习知识点
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.querySelectorAll('.show-answer').forEach(button => {
+    button.addEventListener('click', function() {
+        const targetId = this.dataset.target;
+        const answerDiv = document.querySelector(targetId);
+        if (answerDiv) {
+            if (answerDiv.style.display === 'none') {
+                answerDiv.style.display = 'block';
+                this.textContent = '隐藏答案';
+            } else {
+                answerDiv.style.display = 'none';
+                this.textContent = '查看答案';
+            }
+        }
+    });
+});
+
+// 平滑滚动到锚点
+document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+    anchor.addEventListener('click', function (e) {
+        e.preventDefault();
+        
+        const targetId = this.getAttribute('href');
+        const targetElement = document.querySelector(targetId);
+        
+        if (targetElement) {
+            window.scrollTo({
+                top: targetElement.offsetTop - 70, // 减去导航栏的高度
+                behavior: 'smooth'
+            });
+        }
+    });
+});
+</script>
+{% endblock %} 

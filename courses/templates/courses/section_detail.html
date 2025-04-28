@@ -14,50 +14,42 @@
 
 <div class="row">
     <div class="col-md-8">
-        <h1 class="mb-4">{{ section.number }} {{ section.title }}</h1>
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1>{{ section.number }} {{ section.title }}</h1>
+            <div>
+                <span class="badge bg-primary me-2">{{ knowledge_points.count }} 知识点</span>
+                <span class="badge bg-success">{{ exercises_count }} 习题</span>
+            </div>
+        </div>
         
         <!-- 知识点部分 -->
-        {% for knowledge in knowledge_points %}
-        <div class="card mb-4">
-            <div class="card-body">
-                <h5 class="card-title">{{ knowledge.title }}</h5>
-                <div class="card-text markdown-body">
-                    {{ knowledge.content|safe }}
+        {% if knowledge_points %}
+        <div class="mb-5">
+            <h2 class="h4 mb-4">知识点</h2>
+            {% for knowledge in knowledge_points %}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="card-text markdown-body">
+                        {{ knowledge.content|safe }}
+                    </div>
                 </div>
             </div>
+            {% endfor %}
         </div>
-        {% endfor %}
+        {% endif %}
         
-        <!-- 习题部分 -->
-        <h2 class="mb-4">习题</h2>
-        {% for exercise in exercises %}
-        <div class="exercise-card">
-            <h5>{{ exercise.number }}. {{ exercise.content }}</h5>
-            
-            {% if exercise.type == 'single' %}
-            <div class="options mt-3">
-                {% for key, value in exercise.options.items %}
-                <div class="option-label">
-                    <input type="radio" name="exercise_{{ exercise.id }}" id="option_{{ exercise.id }}_{{ key }}" value="{{ key }}">
-                    <label for="option_{{ exercise.id }}_{{ key }}">{{ key }}. {{ value }}</label>
-                </div>
-                {% endfor %}
-            </div>
-            {% endif %}
-            
-            <div class="answer mt-3" style="display: none;">
-                <hr>
-                <h6>答案：</h6>
-                <p>{{ exercise.answer }}</p>
-                <h6>解析：</h6>
-                <p>{{ exercise.explanation }}</p>
-            </div>
-            
-            <button class="btn btn-primary mt-3 show-answer" data-exercise="{{ exercise.id }}">
-                查看答案
-            </button>
+        <!-- 习题链接 -->
+        {% if exercises_count > 0 %}
+        <div class="text-center mb-5">
+            <a href="{% url 'courses:section_exercises' section.id %}" class="btn btn-primary btn-lg">
+                <i class="bi bi-journal-check"></i> 进入习题练习（{{ exercises_count }} 题）
+            </a>
         </div>
-        {% endfor %}
+        {% else %}
+        <div class="alert alert-info">
+            本节暂无习题
+        </div>
+        {% endif %}
     </div>
     
     <div class="col-md-4">
@@ -68,28 +60,10 @@
                     <strong>所属教材：</strong> {{ section.chapter.book.title }}<br>
                     <strong>所属章节：</strong> 第{{ section.chapter.number }}章 {{ section.chapter.title }}<br>
                     <strong>知识点数量：</strong> {{ knowledge_points.count }}<br>
-                    <strong>习题数量：</strong> {{ exercises.count }}
+                    <strong>习题数量：</strong> {{ exercises_count }}
                 </p>
             </div>
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block extra_js %}
-<script>
-document.querySelectorAll('.show-answer').forEach(button => {
-    button.addEventListener('click', function() {
-        const exerciseId = this.dataset.exercise;
-        const answerDiv = this.previousElementSibling;
-        if (answerDiv.style.display === 'none') {
-            answerDiv.style.display = 'block';
-            this.textContent = '隐藏答案';
-        } else {
-            answerDiv.style.display = 'none';
-            this.textContent = '查看答案';
-        }
-    });
-});
-</script>
 {% endblock %} 
