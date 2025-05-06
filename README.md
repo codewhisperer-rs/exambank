@@ -42,11 +42,11 @@
     * 框架: **Django 5.2** (启用 ASGI 异步模式)
 * **大语言模型 (LLM):**
     * 集成用于: 知识点提取、习题生成/推荐、AI 助教问答。
-    * *(可在此处注明具体使用的模型或服务 API，例如：OpenAI API, Google Gemini API, 或其他本地/云端模型)*
+    * *使用DeepSeek API，Grok API*
 * **数据库 (Database):**
-    * *(在此处注明项目使用的数据库，如：PostgreSQL, MySQL, SQLite)*
+    * *SQLite*
 * **前端 (Frontend):**
-    * *(在此处注明使用的前端技术栈，如：HTML, CSS, JavaScript, React, Vue 等)*
+    * *HTML, JavaScript*
 * **其他 (Others):**
     * *(可列出其他关键依赖库或技术，如：Celery (如果用于后台任务), Redis (如果用于缓存或队列) 等)*
 
@@ -56,11 +56,10 @@
 * 确保已安装 **Python 3.12** 及 `pip` 包管理器。
 * 推荐使用虚拟环境 (如 `venv`) 来隔离项目依赖。
     ```bash
-    python -m venv venv
-    # Windows: .\venv\Scripts\activate
-    # macOS/Linux: source venv/bin/activate
+    conda create -n exambank python==3.12
+    conda activate exambank
+    pip install -r requrements.txt
     ```
-* *(根据需要安装数据库服务，如 PostgreSQL, MySQL)*
 
 **2. 获取代码:**
 ```bash
