@@ -547,14 +547,33 @@ def get_exercise_detail(request, exercise_id):
         except UserMistakeCollection.DoesNotExist:
             pass
 
-        # 获取选项信息
+        # 获取选项信息 (增强版)
         options_dict = {}
-        options_generated = False # 添加标志，指示选项是否为生成的
-        if exercise.options and isinstance(exercise.options, dict):
-            options_dict = exercise.options
+        options_generated = False
         
-        # 如果是选择题但没有选项，生成默认选项
-        if not options_dict and exercise.type in ['single', 'multiple']:
+        # 检查数据库中的选项是什么类型
+        if exercise.options is None:
+            # 选项为空，生成默认选项
+            options_generated = True
+        elif isinstance(exercise.options, dict):
+            # 如果已经是字典，直接使用
+            options_dict = exercise.options.copy()  # 创建一个副本，避免修改原始数据
+        elif isinstance(exercise.options, str):
+            # 如果是字符串，尝试解析为JSON
+            try:
+                parsed_options = json.loads(exercise.options)
+                if isinstance(parsed_options, dict):
+                    options_dict = parsed_options
+                else:
+                    options_generated = True
+            except json.JSONDecodeError:
+                options_generated = True
+        else:
+            # 其他任何情况，生成默认选项
+            options_generated = True
+        
+        # 如果是选择题但没有有效选项，生成默认选项
+        if (not options_dict or len(options_dict) == 0) and exercise.type in ['single', 'multiple']:
             options_dict = {
                 'A': '选项 A (无数据)',
                 'B': '选项 B (无数据)',
@@ -563,22 +582,22 @@ def get_exercise_detail(request, exercise_id):
             }
             options_generated = True
         
-        # 构建选项的HTML表示 (这段现在不需要，交给前端处理)
-        # options_html = ''
-        # for key, value in options_dict.items():
-        #     options_html += f'<div class="option"><strong>{key}.</strong> {value}</div>'
+        # 确保返回的选项包含预期的ABCD键
+        if exercise.type in ['single', 'multiple']:
+            expected_keys = ['A', 'B', 'C', 'D']
+            for key in expected_keys:
+                if key not in options_dict:
+                    options_dict[key] = f'选项 {key} (系统补充)'
+                    options_generated = True
         
-        # 不再将选项HTML嵌入content，前端会根据options_dict渲染
-        # full_content = f"{content}<div class='exercise-options mt-3'>{options_html}</div>"
-        full_content = content # 只返回题目内容本身
-        
+        # 构建响应
         response_data = {
             'id': exercise.id,
             'type': exercise.type,
             'type_display': exercise.get_type_display(),
-            'content': full_content, # 返回纯净的题目内容
-            'options': options_dict,  # 返回选项字典（可能是生成的）
-            'options_generated': options_generated, # 添加标志
+            'content': content,
+            'options': options_dict,
+            'options_generated': options_generated,
             'answer': exercise.answer,
             'user_answer': user_answer,
             'explanation': explanation,

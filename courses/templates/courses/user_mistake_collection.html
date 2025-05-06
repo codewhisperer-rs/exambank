@@ -200,15 +200,24 @@
                 fetch(detailUrl)
                     .then(response => {
                         if (!response.ok) {
-                            throw new Error(`网络响应不正常: ${response.status} ${response.statusText}`); // 更详细的错误
+                            throw new Error(`网络响应不正常: ${response.status} ${response.statusText}`);
                         }
                         return response.json();
                     })
                     .then(data => {
                         console.log("Received exercise detail data:", data);
+                        // 添加详细日志，专门查看选项数据
+                        console.log("Options data type:", typeof data.options);
+                        console.log("Options data:", data.options);
+                        if (data.options) {
+                            console.log("Options keys:", Object.keys(data.options));
+                            console.log("Options values:", Object.values(data.options));
+                        }
                         
                         // 显示题目内容 (现在是纯净内容)
-                        document.querySelector('#mistakeDetailModal .exercise-content').innerHTML = data.content;
+                        const contentElement = document.querySelector('#mistakeDetailModal .exercise-content');
+                        contentElement.innerHTML = data.content;
+                        contentElement.classList.add('p-3', 'border', 'rounded', 'mb-3', 'arithmatex');
                         
                         // 处理选项显示
                         const optionsContainer = document.querySelector('#mistakeDetailModal .options-container');
@@ -216,14 +225,41 @@
                         optionsContainer.innerHTML = ''; // 清空旧选项
                         
                         console.log("Checking for options...");
-                        if (data.options && typeof data.options === 'object' && Object.keys(data.options).length > 0) {
-                            console.log("Options found, processing...");
+                        // 增强选项检查逻辑
+                        let hasValidOptions = false;
+                        if (data.options) {
+                            if (typeof data.options === 'object') {
+                                const keys = Object.keys(data.options);
+                                if (keys.length > 0) {
+                                    // 检查是否至少有一个选项值不为空
+                                    const hasNonEmptyValue = keys.some(key => data.options[key] && data.options[key].trim && data.options[key].trim() !== '');
+                                    if (hasNonEmptyValue) {
+                                        hasValidOptions = true;
+                                    } else {
+                                        console.log("Options found but all values are empty");
+                                    }
+                                } else {
+                                    console.log("Options object exists but has no keys");
+                                }
+                            } else {
+                                console.log("Options exists but is not an object, type:", typeof data.options);
+                            }
+                        } else {
+                            console.log("No options data found");
+                        }
+
+                        if (hasValidOptions || data.options_generated) {
+                            console.log("Processing options...");
                             let correctAnswers = data.answer ? data.answer.split(',') : [];
                             let userAnswers = data.user_answer ? data.user_answer.split(',') : [];
                             
                             // 创建选项HTML
                             let optionsHtml = '';
-                            for (const [key, value] of Object.entries(data.options)) {
+                            
+                            // 确保data.options是对象，即使它为空或不是预期格式
+                            const options = (typeof data.options === 'object' && data.options) ? data.options : {};
+                            
+                            for (const [key, value] of Object.entries(options)) {
                                 let optionClass = '';
                                 let optionIcon = '';
                                 
@@ -240,9 +276,12 @@
                                     optionIcon = '<i class="bi bi-x-circle-fill"></i> ';
                                 }
                                 
+                                // 处理选项内容，确保显示有效值并支持LaTeX渲染
+                                const displayValue = value ? value : `选项 ${key} (无数据)`;
+                                
                                 optionsHtml += `
-                                    <div class="option-item mb-2 p-2 rounded ${optionClass}">
-                                        ${optionIcon}<strong>${key}.</strong> ${value}
+                                    <div class="option-item mb-2 p-2 rounded ${optionClass}" style="border: 1px solid #dee2e6; transition: all 0.2s ease;">
+                                        ${optionIcon}<strong class="me-2">${key}.</strong> <span class="option-content arithmatex">${displayValue}</span>
                                     </div>`;
                             }
                             console.log("Generated options HTML:", optionsHtml);
@@ -251,15 +290,40 @@
                             optionsContainer.innerHTML = optionsHtml;
                             optionsSection.style.display = 'block';
 
-                            // 如果选项是生成的，可以添加提示
-                            if (data.options_generated) {
+                            // 添加样式确保选项容器和选项项正确显示
+                            optionsContainer.style.display = 'block';
+                            optionsContainer.style.marginTop = '10px';
+                            optionsSection.classList.add('p-3', 'border', 'rounded', 'bg-light');
+
+                            // 添加选项标题样式
+                            const optionsTitle = optionsSection.querySelector('h6');
+                            if (optionsTitle) {
+                                optionsTitle.classList.add('fw-bold', 'border-bottom', 'pb-2', 'mb-3');
+                            }
+
+                            // 添加悬停效果
+                            const optionItems = optionsContainer.querySelectorAll('.option-item');
+                            optionItems.forEach(item => {
+                                if (!item.classList.contains('bg-success') && !item.classList.contains('bg-danger')) {
+                                    item.addEventListener('mouseover', function() {
+                                        this.style.backgroundColor = '#f8f9fa';
+                                        this.style.cursor = 'pointer';
+                                    });
+                                    item.addEventListener('mouseout', function() {
+                                        this.style.backgroundColor = '';
+                                    });
+                                }
+                            });
+
+                            // 显示选项数据缺失的提示
+                            if (data.options_generated || !hasValidOptions) {
                                 const note = document.createElement('div');
-                                note.className = 'alert alert-warning alert-sm mt-2';
-                                note.innerHTML = '<small><i class="bi bi-exclamation-triangle"></i> 注意：此题选项数据缺失，显示为占位符。</small>';
+                                note.className = 'alert alert-warning mt-2';
+                                note.innerHTML = '<small><i class="bi bi-exclamation-triangle"></i> 注意：此题选项数据缺失，显示为占位符。可能需要检查后端数据。</small>';
                                 optionsContainer.appendChild(note);
                             }
                         } else {
-                            console.log("No options found in data.");
+                            console.log("No valid options to display");
                             optionsSection.style.display = 'none';
                         }
                         
@@ -274,12 +338,39 @@
                             userAnswerSection.style.display = 'none';
                         }
                         
+                        // 增强答案显示区域样式
+                        const answerComparisonSection = document.querySelector('#mistakeDetailModal .answer-comparison');
+                        answerComparisonSection.classList.add('p-3', 'border', 'rounded', 'mb-3', 'bg-light');
+
                         // 显示解析
-                        document.querySelector('#mistakeDetailModal .explanation').innerHTML = data.explanation || '无解析';
+                        const explanationElement = document.querySelector('#mistakeDetailModal .explanation');
+                        explanationElement.innerHTML = data.explanation || '无解析';
+                        explanationElement.classList.add('p-3', 'border', 'rounded', 'bg-light', 'arithmatex');
                         
                         // 显示模态框
                         var myModal = new bootstrap.Modal(document.getElementById('mistakeDetailModal'));
                         myModal.show();
+
+                        // 渲染数学公式
+                        setTimeout(() => {
+                            if (window.MathJax) {
+                                console.log("开始渲染数学公式...");
+                                try {
+                                    // 渲染整个模态框中的所有数学公式
+                                    MathJax.typesetPromise([document.querySelector('#mistakeDetailModal')])
+                                        .then(() => {
+                                            console.log("数学公式渲染完成");
+                                        })
+                                        .catch(err => {
+                                            console.error('MathJax渲染错误:', err);
+                                        });
+                                } catch (e) {
+                                    console.error('MathJax处理错误:', e);
+                                }
+                            } else {
+                                console.warn("MathJax未加载，无法渲染公式");
+                            }
+                        }, 200); // 短暂延迟确保模态框完全加载
                     })
                     .catch(error => {
                         console.error('获取题目详情失败:', error);
