@@ -164,3 +164,49 @@ CSRF_TRUSTED_ORIGINS = [
 # 实际使用时，建议通过环境变量设置或使用专门的密钥管理服务
 DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY', '')  # 生产环境应使用环境变量
 GROK_API_KEY = os.environ.get('GROK_API_KEY', '')  # 生产环境应使用环境变量
+
+# 在文件末尾添加或修改现有的LOGGING配置
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[{asctime}] {levelname} {module} {message}',
+            'style': '{',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
+        'simple': {
+            'format': '[{asctime}] {message}',
+            'style': '{',
+            'datefmt': '%H:%M:%S',
+        },
+    },
+    'handlers': {
+        'console': {
+            'level': 'INFO',
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'channels': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'courses': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+}

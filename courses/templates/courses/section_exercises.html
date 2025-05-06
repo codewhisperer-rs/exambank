@@ -3,6 +3,38 @@
 
 {% block title %}{{ section.title }} - 习题练习 - 计算机考研题库{% endblock %}
 
+{% block extrahead %}
+<!-- 添加MathJax支持 -->
+<script>
+MathJax = {
+  tex: {
+    inlineMath: [['$', '$'], ['\\(', '\\)']],
+    displayMath: [['$$', '$$'], ['\\[', '\\]']],
+    processEscapes: true,
+    processEnvironments: true,
+    packages: {'[+]': ['noerrors']}
+  },
+  options: {
+    skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre'],
+    enableMenu: false
+  },
+  startup: {
+    ready: function() {
+      MathJax.startup.defaultReady();
+      
+      // 页面加载完成后立即渲染
+      setTimeout(function() {
+        MathJax.typesetPromise().catch((err) => console.error('初始MathJax渲染失败:', err));
+      }, 100);
+    }
+  }
+};
+</script>
+<script type="text/javascript" id="MathJax-script" async
+  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">
+</script>
+{% endblock %}
+
 {% block content %}
 {% csrf_token %}
 <nav aria-label="breadcrumb">
@@ -31,16 +63,12 @@
                     <h2 class="h4 mb-4 fw-bold text-primary p-2 bg-light border-start border-5 border-primary rounded">{{ group.title }}</h2>
                     {% for exercise in group.exercises %}
                     <div class="exercise-card card mb-4">
-                        <div class="card-body">
+                        <div class="card-body position-relative">
                             <div class="d-flex justify-content-between">
                                 <h5 class="card-title">
                                     题 {{ exercise.number }}. 
                                     <span class="exercise-content">{{ exercise.content|safe }}</span>
                                 </h5>
-                                <!-- 添加反馈按钮 -->
-                                <button class="btn btn-sm btn-outline-secondary feedback-btn" data-bs-toggle="modal" data-bs-target="#feedbackModal" data-exercise-id="{{ exercise.id }}" data-exercise-number="{{ exercise.number }}">
-                                    <i class="bi bi-flag"></i> 反馈
-                                </button>
                             </div>
                         
                             {% if exercise.type == 'single' or exercise.type == 'multiple' %}
@@ -132,6 +160,11 @@
                         
                             <button class="btn btn-sm btn-outline-primary mt-3 show-answer" data-target="#answer_{{ exercise.id }}">
                                 查看答案
+                            </button>
+                            
+                            <!-- 将反馈按钮移到右下角 -->
+                            <button class="btn btn-sm btn-outline-secondary feedback-btn position-absolute" style="font-size: 0.75rem; padding: 0.15rem 0.5rem; height: 24px; width: auto; right: 15px; bottom: 15px;" data-bs-toggle="modal" data-bs-target="#feedbackModal" data-exercise-id="{{ exercise.id }}" data-exercise-number="{{ exercise.number }}">
+                                <i class="bi bi-flag"></i> 反馈
                             </button>
                         </div>
                     </div>
@@ -241,6 +274,19 @@
 // 存储每个习题的WebSocket连接
 const exerciseSockets = {};
 
+// 全局渲染所有页面上的数学公式
+function renderMathInElement(element) {
+    if (typeof MathJax !== 'undefined') {
+        // 如果传入了特定元素，只渲染该元素内的公式
+        if (element) {
+            MathJax.typesetPromise([element]).catch((err) => console.error('MathJax处理失败:', err));
+        } else {
+            // 否则渲染整个页面
+            MathJax.typesetPromise().catch((err) => console.error('MathJax处理失败:', err));
+        }
+    }
+}
+
 document.querySelectorAll('.show-answer').forEach(button => {
     button.addEventListener('click', function() {
         const targetId = this.dataset.target;
@@ -249,6 +295,9 @@ document.querySelectorAll('.show-answer').forEach(button => {
             if (answerDiv.style.display === 'none') {
                 answerDiv.style.display = 'block';
                 this.textContent = '隐藏答案';
+                
+                // 触发MathJax渲染
+                renderMathInElement(answerDiv);
             } else {
                 answerDiv.style.display = 'none';
                 this.textContent = '查看答案';
@@ -390,23 +439,26 @@ function processExerciseResponse(exerciseId, data) {
     const resultDiv = document.getElementById(`exercise-result-${exerciseId}`);
     if (resultDiv) {
         if (data.status === 'success') {
-            // 正确答案的处理
-            const resultHtml = `
-                <div class="alert ${data.is_correct ? 'alert-success' : 'alert-danger'} mt-3">
-                    <h5>${data.is_correct ? '回答正确！' : '回答错误！'}</h5>
-                    <p><strong>正确答案:</strong> ${data.correct_answer}</p>
-                    ${data.explanation ? `<div class="explanation-content markdown-body mt-2"><h6>解析:</h6>${data.explanation}</div>` : ''}
+            // 成功判分，确保应用markdown-body类以支持Markdown和LaTeX渲染
+            resultDiv.innerHTML = `
+                <div class="alert alert-primary mt-3">
+                    <h5>
+                        <span class="badge bg-primary">${data.score}/10</span>
+                        <small class="text-muted ms-2">由 ${data.model_used.toUpperCase()} 模型评分</small>
+                    </h5>
+                    <hr>
+                    <h6>评价:</h6>
+                    <div class="markdown-body mt-2">${data.feedback}</div>
+                    ${data.correct_answer ? `
+                    <hr>
+                    <h6>参考答案:</h6>
+                    <div class="markdown-body mt-2">${data.correct_answer}</div>
+                    ` : ''}
                 </div>
             `;
-            resultDiv.innerHTML = resultHtml;
             
-            // 如果答案正确，绿色高亮正确选项
-            if (data.is_correct) {
-                highlightCorrectOptions(exerciseId, data.correct_answer);
-            } else {
-                // 如果答案错误，红色高亮错误选项，绿色高亮正确选项
-                highlightOptions(exerciseId, data.correct_answer);
-            }
+            // 渲染结果中的数学公式
+            renderMathInElement(resultDiv);
         } else {
             // 错误处理
             resultDiv.innerHTML = `
@@ -414,6 +466,9 @@ function processExerciseResponse(exerciseId, data) {
                     ${data.error || '提交答案时出错，请稍后再试'}
                 </div>
             `;
+            
+            // 渲染结果中的错误信息中可能包含的数学公式
+            renderMathInElement(resultDiv);
         }
     }
 }
@@ -462,6 +517,66 @@ window.addEventListener('beforeunload', function() {
 
 // 综合题功能：加载保存的答案
 document.addEventListener('DOMContentLoaded', function() {
+    // 初始化MathJax渲染
+    setTimeout(function() {
+        renderMathInElement();
+        
+        // 再次渲染任何可能已经显示的答案区域
+        document.querySelectorAll('.answer').forEach(answerDiv => {
+            if (answerDiv.style.display !== 'none') {
+                renderMathInElement(answerDiv);
+            }
+        });
+        
+        // 渲染任何已经显示的结果区域
+        document.querySelectorAll('[id^="exercise-result-"]').forEach(resultDiv => {
+            if (resultDiv.innerHTML.trim() !== '') {
+                renderMathInElement(resultDiv);
+            }
+        });
+        
+        // 渲染所有markdown-body区域
+        document.querySelectorAll('.markdown-body').forEach(elem => {
+            renderMathInElement(elem);
+        });
+    }, 1000); // 等待1000ms确保DOM和MathJax都已完全加载
+    
+    // 添加DOM变化观察器，自动渲染新添加的内容
+    if ('MutationObserver' in window) {
+        const observer = new MutationObserver(function(mutations) {
+            let mathNodeAdded = false;
+            
+            mutations.forEach(function(mutation) {
+                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                    for (let i = 0; i < mutation.addedNodes.length; i++) {
+                        const node = mutation.addedNodes[i];
+                        if (node.nodeType === 1) { // 元素节点
+                            if (node.classList.contains('markdown-body') || 
+                                node.querySelector('.markdown-body') ||
+                                node.textContent.includes('$')) {
+                                mathNodeAdded = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // 如果有包含数学公式的节点被添加，触发渲染
+            if (mathNodeAdded && typeof MathJax !== 'undefined') {
+                setTimeout(function() {
+                    renderMathInElement();
+                }, 100);
+            }
+        });
+        
+        // 开始观察整个文档
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+    }
+    
     // 查找所有综合题的输入框
     document.querySelectorAll('textarea[id^="text-answer-"]').forEach(textarea => {
         const exerciseId = textarea.id.replace('text-answer-', '');
@@ -528,7 +643,7 @@ document.addEventListener('DOMContentLoaded', function() {
 // 全局判分队列状态
 const gradingStatus = {};
 
-// 通用AI判分函数
+// 修改AI判分函数
 function gradeWithAI(exerciseId, userAnswer, modelType) {
     // 如果该习题正在判分中，提示用户稍后再试
     if (gradingStatus[exerciseId]) {
@@ -598,10 +713,10 @@ function gradeWithAI(exerciseId, userAnswer, modelType) {
             loadingIndicator.style.display = 'none';
         }
         
-        // 启用按钮
+        // 启用按钮，并重置回原来的文本
         if (mainButton) {
             mainButton.disabled = false;
-            mainButton.innerHTML = originalButtonText;
+            mainButton.innerHTML = '<i class="bi bi-robot"></i> 大模型判分 <span class="caret"></span>';
         }
         
         // 恢复下拉菜单选项
@@ -612,7 +727,7 @@ function gradeWithAI(exerciseId, userAnswer, modelType) {
         // 显示结果
         if (resultDiv) {
             if (data.status === 'success') {
-                // 成功判分
+                // 成功判分，确保应用markdown-body类以支持Markdown和LaTeX渲染
                 resultDiv.innerHTML = `
                     <div class="alert alert-primary mt-3">
                         <h5>
@@ -629,6 +744,9 @@ function gradeWithAI(exerciseId, userAnswer, modelType) {
                         ` : ''}
                     </div>
                 `;
+                
+                // 渲染结果中的数学公式
+                renderMathInElement(resultDiv);
             } else {
                 // 判分失败
                 resultDiv.innerHTML = `
@@ -646,6 +764,9 @@ function gradeWithAI(exerciseId, userAnswer, modelType) {
                         <p class="mt-2 mb-0"><small class="text-muted">请联系管理员配置 ${modelType.toUpperCase()} API，或尝试使用其他模型</small></p>
                     </div>
                 `;
+                
+                // 渲染结果中的数学公式
+                renderMathInElement(resultDiv);
             }
         }
     })
@@ -660,10 +781,10 @@ function gradeWithAI(exerciseId, userAnswer, modelType) {
             loadingIndicator.style.display = 'none';
         }
         
-        // 恢复按钮原始状态
+        // 恢复按钮原始状态，确保不再显示"评分中"
         if (mainButton) {
             mainButton.disabled = false;
-            mainButton.innerHTML = originalButtonText;
+            mainButton.innerHTML = '<i class="bi bi-robot"></i> 大模型判分 <span class="caret"></span>';
         }
         
         // 恢复下拉菜单选项
@@ -680,6 +801,9 @@ function gradeWithAI(exerciseId, userAnswer, modelType) {
                     <p class="mt-2 mb-0"><small class="text-muted">错误详情: ${error.message || '未知错误'}</small></p>
                 </div>
             `;
+            
+            // 渲染结果中的数学公式
+            renderMathInElement(resultDiv);
         }
     });
 }

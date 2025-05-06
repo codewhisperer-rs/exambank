@@ -1,9 +1,11 @@
 import json
 import logging
+import asyncio
 from django.core.management.base import BaseCommand
 from django.conf import settings
 from courses.models import AIGeneratedExercise, Book
 from courses.views import _call_large_language_model_with_retry
+from asgiref.sync_to_async import sync_to_async
 
 logger = logging.getLogger(__name__)
 
@@ -24,13 +26,20 @@ class Command(BaseCommand):
             help='使用的AI模型类型 (grok 或 deepseek)'
         )
 
-    def handle(self, *args, **options):
+    async def handle_async(self, *args, **options):
         batch_size = options['batch']
         model_type = options['model']
         
         # 获取所有未关联书籍的AI习题
-        unclassified_exercises = AIGeneratedExercise.objects.filter(book__isnull=True)
-        total_count = unclassified_exercises.count()
+        get_unclassified_exercises = sync_to_async(
+            lambda: list(AIGeneratedExercise.objects.filter(book__isnull=True))
+        )
+        get_unclassified_count = sync_to_async(
+            lambda: AIGeneratedExercise.objects.filter(book__isnull=True).count()
+        )
+        
+        unclassified_exercises = await get_unclassified_exercises()
+        total_count = await get_unclassified_count()
         
         if total_count == 0:
             self.stdout.write(self.style.SUCCESS('没有需要分类的习题'))
@@ -39,7 +48,9 @@ class Command(BaseCommand):
         self.stdout.write(f'开始处理 {total_count} 道未分类的习题...')
         
         # 获取所有书籍
-        books = Book.objects.all()
+        get_books = sync_to_async(lambda: list(Book.objects.all()))
+        books = await get_books()
+        
         book_list = [{'id': book.id, 'title': book.title} for book in books]
         books_dict = {book.title: book for book in books}
         
@@ -80,8 +91,11 @@ class Command(BaseCommand):
 """
             
             try:
-                # 调用AI模型进行分类
-                classifications = _call_large_language_model_with_retry(prompt, model_type)
+                # 调用AI模型进行分类 (假设_call_large_language_model_with_retry是同步函数)
+                call_llm = sync_to_async(
+                    lambda p, m: _call_large_language_model_with_retry(p, m)
+                )
+                classifications = await call_llm(prompt, model_type)
                 
                 # 应用分类结果
                 updated_count = 0
@@ -92,14 +106,25 @@ class Command(BaseCommand):
                         
                         if book_title in books_dict:
                             try:
-                                exercise = AIGeneratedExercise.objects.get(id=exercise_id)
-                                exercise.book = books_dict[book_title]
-                                exercise.save()
-                                updated_count += 1
+                                # 获取习题并更新
+                                get_exercise = sync_to_async(
+                                    lambda: AIGeneratedExercise.objects.get(id=exercise_id)
+                                )
                                 
-                                self.stdout.write(f'习题 ID {exercise_id} 已归类到 "{book_title}" (置信度: {result.get("confidence", "未知")})')
-                            except AIGeneratedExercise.DoesNotExist:
-                                self.stdout.write(self.style.WARNING(f'习题 ID {exercise_id} 不存在'))
+                                try:
+                                    exercise = await get_exercise()
+                                    exercise.book = books_dict[book_title]
+                                    
+                                    # 保存更新
+                                    save_exercise = sync_to_async(exercise.save)
+                                    await save_exercise()
+                                    
+                                    updated_count += 1
+                                    self.stdout.write(f'习题 ID {exercise_id} 已归类到 "{book_title}" (置信度: {result.get("confidence", "未知")})')
+                                except AIGeneratedExercise.DoesNotExist:
+                                    self.stdout.write(self.style.WARNING(f'习题 ID {exercise_id} 不存在'))
+                            except Exception as e:
+                                self.stdout.write(self.style.WARNING(f'更新习题 ID {exercise_id} 时出错: {str(e)}'))
                         else:
                             self.stdout.write(self.style.WARNING(f'书籍 "{book_title}" 不存在于数据库中'))
                 
@@ -109,9 +134,18 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.ERROR(f'处理批次时出错: {str(e)}'))
         
         # 显示最终结果
-        remaining = AIGeneratedExercise.objects.filter(book__isnull=True).count()
+        get_remaining = sync_to_async(
+            lambda: AIGeneratedExercise.objects.filter(book__isnull=True).count()
+        )
+        remaining = await get_remaining()
         classified = total_count - remaining
         
         self.stdout.write(self.style.SUCCESS(f'分类完成: {classified}/{total_count} 道习题已关联到书籍'))
         if remaining > 0:
-            self.stdout.write(self.style.WARNING(f'仍有 {remaining} 道习题未分类')) 
+            self.stdout.write(self.style.WARNING(f'仍有 {remaining} 道习题未分类'))
+            
+    def handle(self, *args, **options):
+        """
+        作为入口点的同步方法，调用异步的handle方法
+        """
+        asyncio.run(self.handle_async(*args, **options)) 
