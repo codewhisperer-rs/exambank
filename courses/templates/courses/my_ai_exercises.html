@@ -7,6 +7,18 @@
 <div class="container mt-4">
     <h1 class="mb-4">我的AI习题库 <small class="text-muted">(共{{ total_count }}题)</small></h1>
     
+    <!-- 消息显示区域 -->
+    {% if messages %}
+    <div class="messages mb-4">
+        {% for message in messages %}
+        <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    
     <div class="row">
         <!-- 左侧：习题列表 -->
         <div class="col-md-9">
@@ -25,6 +37,23 @@
                         </button>
                     </li>
                     {% endfor %}
+                    
+                    {% if by_book %}
+                    <li class="nav-item dropdown">
+                        <button class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button" aria-expanded="false">
+                            按书籍
+                        </button>
+                        <ul class="dropdown-menu">
+                            {% for book_id, book_data in by_book.items %}
+                            <li>
+                                <button class="dropdown-item" id="book-{{ book_id }}-tab" data-bs-toggle="tab" data-bs-target="#book-{{ book_id }}" type="button" role="tab" aria-controls="book-{{ book_id }}" aria-selected="false">
+                                    {{ book_data.title }} ({{ book_data.exercises|length }})
+                                </button>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </li>
+                    {% endif %}
                 </ul>
                 
                 <!-- 标签内容 -->
@@ -43,6 +72,21 @@
                     <div class="tab-pane fade" id="{{ model }}" role="tabpanel" aria-labelledby="{{ model }}-tab">
                         <div class="accordion accordion-flush" id="{{ model }}Accordion">
                             {% for exercise in exercises %}
+                                {% include 'courses/partials/ai_exercise_item.html' with exercise=exercise counter=forloop.counter %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                    
+                    <!-- 按书籍分类 -->
+                    {% for book_id, book_data in by_book.items %}
+                    <div class="tab-pane fade" id="book-{{ book_id }}" role="tabpanel" aria-labelledby="book-{{ book_id }}-tab">
+                        <div class="accordion accordion-flush" id="book{{ book_id }}Accordion">
+                            <div class="mb-3">
+                                <h5>{{ book_data.title }}</h5>
+                                <p class="text-muted">共 {{ book_data.exercises|length }} 题</p>
+                            </div>
+                            {% for exercise in book_data.exercises %}
                                 {% include 'courses/partials/ai_exercise_item.html' with exercise=exercise counter=forloop.counter %}
                             {% endfor %}
                         </div>
@@ -77,6 +121,36 @@
                 </div>
             </div>
             
+            <!-- 习题管理功能 -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">习题管理</h5>
+                </div>
+                <div class="card-body">
+                    {% if unclassified_count > 0 %}
+                    <div class="mb-3">
+                        <p class="text-muted">有 {{ unclassified_count }} 道习题未归类到书籍</p>
+                        <form action="{% url 'courses:reclassify_ai_exercises' %}" method="post" class="mb-2">
+                            {% csrf_token %}
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-primary" name="model_type" value="grok">
+                                    <i class="bi bi-tags"></i> 自动分类习题
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                    {% endif %}
+                    
+                    {% if total_count > 0 %}
+                    <div>
+                        <button type="button" class="btn btn-danger w-100" data-bs-toggle="modal" data-bs-target="#clearExercisesModal">
+                            <i class="bi bi-trash"></i> 清空习题库
+                        </button>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            
             {% if ai_exercises %}
             <div class="card">
                 <div class="card-header">
@@ -103,6 +177,30 @@
     </div>
 </div>
 
+<!-- 确认清空AI习题库的模态框 -->
+<div class="modal fade" id="clearExercisesModal" tabindex="-1" aria-labelledby="clearExercisesModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="clearExercisesModalLabel">确认清空AI习题库</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-danger">警告：此操作将永久删除您的所有AI生成习题和相关答题记录。此操作无法撤销。</p>
+                <p>您确定要继续吗？</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <form action="{% url 'courses:clear_ai_exercises' %}" method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="confirm" value="true">
+                    <button type="submit" class="btn btn-danger">确认清空</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- 添加隐藏的数据元素，用于将后端数据传递给JavaScript -->
 <div id="exercise-data" style="display: none;" 
     data-has-exercises="{{ ai_exercises|yesno:'true,false' }}"
@@ -110,9 +208,9 @@
     {% if ai_exercises %}
     <script type="application/json" id="exercise-types-data">
     {
-        "single": {{ ai_exercises|filter:"type=single"|length }},
-        "multiple": {{ ai_exercises|filter:"type=multiple"|length }},
-        "comprehensive": {{ ai_exercises|filter:"type=comprehensive"|length }}
+        "single": {{ single_count }},
+        "multiple": {{ multiple_count }},
+        "comprehensive": {{ comprehensive_count }}
     }
     </script>
     {% endif %}
@@ -121,26 +219,25 @@
 
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
+    $(document).ready(function() {
         // 获取数据元素
-        const dataElement = document.getElementById('exercise-data');
-        const hasExercises = dataElement.getAttribute('data-has-exercises') === 'true';
-        const apiUrl = dataElement.getAttribute('data-api-url');
+        const dataElement = $('#exercise-data');
+        const hasExercises = dataElement.data('has-exercises') === true;
+        const apiUrl = dataElement.data('api-url');
         
         // 渲染习题类型统计图表
         if (hasExercises) {
-            // 解析习题类型统计数据
-            const typesDataElement = document.getElementById('exercise-types-data');
-            const typeCounts = JSON.parse(typesDataElement.textContent);
+            const typesData = JSON.parse($('#exercise-types-data').text());
             
-            const ctx = document.getElementById('exerciseTypesChart').getContext('2d');
+            const ctx = $('#exerciseTypesChart')[0].getContext('2d');
             const myChart = new Chart(ctx, {
                 type: 'doughnut',
                 data: {
                     labels: ['单选题', '多选题', '综合题'],
                     datasets: [{
-                        data: [typeCounts.single, typeCounts.multiple, typeCounts.comprehensive],
+                        data: [typesData.single, typesData.multiple, typesData.comprehensive],
                         backgroundColor: [
                             'rgba(54, 162, 235, 0.7)',
                             'rgba(255, 99, 132, 0.7)',
@@ -168,88 +265,149 @@
                 }
             });
         }
+
+        // 当前活动的标签页ID
+        let activeTabId = 'all';
+
+        // 监听标签页切换事件，更新当前活动标签页
+        $('button[data-bs-toggle="tab"]').on('shown.bs.tab', function(e) {
+            activeTabId = $(e.target).attr('data-bs-target').replace('#', '');
+            console.log('标签页切换完成，当前标签页:', activeTabId);
+        });
         
-        // 处理答题逻辑
-        document.querySelectorAll('.submit-answer').forEach(button => {
-            button.addEventListener('click', function() {
-                const exerciseId = this.getAttribute('data-exercise-id');
-                const form = document.getElementById(`exercise-form-${exerciseId}`);
-                const resultDiv = document.querySelector(`#exercise-${exerciseId} .answer-result`);
-                const type = this.getAttribute('data-type');
-                const correctAnswer = this.getAttribute('data-correct');
-                
-                let userAnswer = '';
-                
-                // 获取用户答案
-                if (type === 'single') {
-                    const selected = form.querySelector('input[type="radio"]:checked');
-                    if (!selected) {
-                        alert('请选择一个选项');
-                        return;
-                    }
-                    userAnswer = selected.value;
-                } else if (type === 'multiple') {
-                    const selected = form.querySelectorAll('input[type="checkbox"]:checked');
-                    if (selected.length === 0) {
-                        alert('请至少选择一个选项');
-                        return;
-                    }
-                    const answers = [];
-                    selected.forEach(input => answers.push(input.value));
-                    userAnswer = answers.sort().join(',');
-                } else {
-                    // 其他题型...
+        // 下拉菜单项点击处理
+        $('.dropdown-item[data-bs-toggle="tab"]').on('click', function() {
+            const targetId = $(this).attr('data-bs-target').replace('#', '');
+            activeTabId = targetId;
+            console.log('下拉菜单项点击，当前标签页:', activeTabId);
+        });
+
+        // 使用jQuery事件委托处理提交答案按钮点击
+        $(document).on('click', '.submit-answer', function(e) {
+            e.preventDefault();
+            
+            const $button = $(this);
+            const exerciseId = $button.data('exercise-id');
+            console.log('提交答案按钮被点击，习题ID:', exerciseId);
+            
+            // 获取当前活动的标签页内容区域
+            const $currentTabContent = $(this).closest('.tab-pane.active, .tab-pane.show.active');
+            console.log('当前操作标签页:', $currentTabContent.attr('id'));
+            
+            // 获取当前按钮所在表单和结果区域
+            const $form = $(this).closest('.exercise-form');
+            const $resultDiv = $(this).closest('.accordion-item').find('.answer-result').first();
+            
+            if ($form.length === 0) {
+                console.error('找不到表单元素');
+                return;
+            }
+            
+            const type = $button.data('type');
+            const correctAnswer = $button.data('correct');
+            console.log('题目类型:', type, '正确答案:', correctAnswer);
+            
+            let userAnswer = '';
+            
+            // 获取用户答案
+            if (type === 'single') {
+                const $selected = $form.find('input[type="radio"]:checked');
+                if ($selected.length === 0) {
+                    alert('请选择一个选项');
                     return;
                 }
-                
-                // 比较答案
-                const isCorrect = userAnswer.toUpperCase() === correctAnswer.toUpperCase();
-                
-                // 显示结果
-                resultDiv.style.display = 'block';
-                resultDiv.innerHTML = isCorrect
-                    ? '<div class="alert alert-success"><i class="bi bi-check-circle-fill"></i> 回答正确！</div>'
-                    : `<div class="alert alert-danger"><i class="bi bi-x-circle-fill"></i> 回答错误！正确答案: ${correctAnswer}</div>`;
-                
-                // 显示解析
-                document.querySelector(`#exercise-${exerciseId} .explanation`).style.display = 'block';
-                
-                // 禁用按钮和选项
-                this.disabled = true;
-                form.querySelectorAll('input').forEach(input => input.disabled = true);
-                
-                // 发送结果到服务器
-                const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-                fetch(apiUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': csrfToken
-                    },
-                    body: JSON.stringify({
-                        exercise_id: exerciseId,
-                        user_answer: userAnswer
-                    })
-                })
-                .catch(error => console.error('Error submitting attempt:', error));
-            });
-        });
-        
-        // 查看解析按钮
-        document.querySelectorAll('.view-explanation').forEach(button => {
-            button.addEventListener('click', function() {
-                const exerciseId = this.getAttribute('data-exercise-id');
-                const explanationDiv = document.querySelector(`#exercise-${exerciseId} .explanation`);
-                
-                if (explanationDiv.style.display === 'none') {
-                    explanationDiv.style.display = 'block';
-                    this.textContent = '隐藏解析';
-                } else {
-                    explanationDiv.style.display = 'none';
-                    this.textContent = '查看解析';
+                userAnswer = $selected.val();
+            } else if (type === 'multiple') {
+                const $selected = $form.find('input[type="checkbox"]:checked');
+                if ($selected.length === 0) {
+                    alert('请至少选择一个选项');
+                    return;
+                }
+                const answers = [];
+                $selected.each(function() {
+                    answers.push($(this).val());
+                });
+                userAnswer = answers.sort().join(',');
+            } else {
+                console.error('不支持的题目类型:', type);
+                return;
+            }
+            
+            console.log('用户答案:', userAnswer);
+            
+            // 比较答案
+            const isCorrect = userAnswer.toUpperCase() === correctAnswer.toUpperCase();
+            console.log('答案是否正确:', isCorrect);
+            
+            // 显示结果
+            $resultDiv.show();
+            $resultDiv.html(isCorrect
+                ? '<div class="alert alert-success"><i class="bi bi-check-circle-fill"></i> 回答正确！</div>'
+                : '<div class="alert alert-danger"><i class="bi bi-x-circle-fill"></i> 回答错误！正确答案: ' + correctAnswer + '</div>');
+            
+            // 显示当前标签页下的这道题的解析
+            const $explanationDiv = $(this).closest('.accordion-item').find('.explanation').first();
+            $explanationDiv.show();
+            
+            // 禁用按钮和选项
+            $button.prop('disabled', true);
+            $form.find('input').prop('disabled', true);
+            
+            // 获取CSRF令牌
+            const csrfToken = $form.find('input[name="csrfmiddlewaretoken"]').val();
+            if (!csrfToken) {
+                console.error('无法获取CSRF令牌');
+                return;
+            }
+            
+            console.log('CSRF令牌:', csrfToken);
+            console.log('提交答题结果到服务器, API URL:', apiUrl);
+            
+            // 发送结果到服务器
+            $.ajax({
+                url: apiUrl,
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    exercise_id: exerciseId,
+                    user_answer: userAnswer
+                }),
+                headers: {
+                    'X-CSRFToken': csrfToken
+                },
+                success: function(data) {
+                    console.log('服务器响应成功:', data);
+                },
+                error: function(xhr, status, error) {
+                    console.error('提交答题记录时出错:', error);
+                    console.error('状态码:', xhr.status);
+                    console.error('响应文本:', xhr.responseText);
+                    alert('提交答案失败，请查看控制台了解详情');
                 }
             });
         });
+        
+        // 使用jQuery事件委托处理查看解析按钮点击
+        $(document).on('click', '.view-explanation', function(e) {
+            e.preventDefault();
+            
+            const $button = $(this);
+            const exerciseId = $button.data('exercise-id');
+            console.log('查看解析按钮被点击，习题ID:', exerciseId);
+            
+            // 只影响当前标签页中的当前习题解析
+            const $explanationDiv = $(this).closest('.accordion-item').find('.explanation').first();
+            
+            if ($explanationDiv.is(':hidden')) {
+                $explanationDiv.show();
+                $button.text('隐藏解析');
+            } else {
+                $explanationDiv.hide();
+                $button.text('查看解析');
+            }
+        });
+
+        console.log('AI习题库JS初始化完成');
     });
 </script>
 {% endblock %} 

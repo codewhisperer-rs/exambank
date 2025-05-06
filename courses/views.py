@@ -1,19 +1,19 @@
 import json
 import requests
-from django.http import JsonResponse, HttpResponseBadRequest
+from django.http import JsonResponse, HttpResponseBadRequest, HttpResponse
 from django.views.decorators.http import require_POST, require_http_methods
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, render, redirect
 from django.views.decorators.csrf import csrf_exempt  # 添加CSRF豁免装饰器
-# 确保导入所有需要的模型
-from .models import Book, Chapter, Section, Exercise, Knowledge, UserMistakeCollection, ExerciseKnowledge, ExerciseAttempt, AIGeneratedExercise, AIExerciseAttempt
 from django.db.models import Count, Q, F, Sum, Case, When, Value, IntegerField
 from django.utils import timezone
 import markdown
-# 确保 User 模型在模型文件中已导入，或者在这里导入
-# from django.contrib.auth.models import User
+# 导入所有需要的模型
+from .models import Book, Chapter, Section, Exercise, Knowledge, UserMistakeCollection, ExerciseKnowledge, ExerciseAttempt, AIGeneratedExercise, AIExerciseAttempt
 import logging
 import time
+from django.core.paginator import Paginator
+from django.contrib import messages
 
 # 替换配置
 # Grok API配置
@@ -659,7 +659,7 @@ def get_ai_exercise_recommendations(request):
         # 获取用户错题记录
         mistake_collections = UserMistakeCollection.objects.filter(
             user=request.user
-        ).select_related('exercise')[:5]
+        ).select_related('exercise', 'exercise__section', 'exercise__section__chapter', 'exercise__section__chapter__book')[:5]
         
         if not mistake_collections.exists():
             context = {
@@ -702,6 +702,9 @@ def get_ai_exercise_recommendations(request):
                         'D': '选项D (系统生成)'
                     }
         
+        # 获取所有书籍字典，用于查找书籍ID
+        books_dict = {book.title: book for book in Book.objects.all()}
+        
         # 将推荐结果保存到数据库
         saved_recommendations = []
         for item in recommendations:
@@ -725,6 +728,12 @@ def get_ai_exercise_recommendations(request):
                 if isinstance(knowledge_points, str):
                     knowledge_points = [knowledge_points]
                 
+                # 根据题目内容找到对应的书籍
+                book = None
+                book_title = item.get('book_title')
+                if book_title and book_title in books_dict:
+                    book = books_dict[book_title]
+                
                 # 创建或更新AI习题记录
                 ai_exercise, created = AIGeneratedExercise.objects.update_or_create(
                     user=request.user,
@@ -737,7 +746,8 @@ def get_ai_exercise_recommendations(request):
                         'explanation': item.get('explanation', '无解析'),
                         'difficulty': difficulty,
                         'knowledge_points': knowledge_points,
-                        'reason': item.get('reason', '基于您的学习情况推荐')
+                        'reason': item.get('reason', '基于您的学习情况推荐'),
+                        'book': book  # 使用每道题目对应的书籍
                     }
                 )
                 
@@ -791,36 +801,42 @@ def _prepare_recommendation_prompt(user, mistake_collections):
             'answer': mc.exercise.answer,
             'knowledge_points': knowledge_titles,
             'attempts': mc.attempt_count,
-            'correct_count': mc.correct_count
+            'correct_count': mc.correct_count,
+            'book_title': mc.exercise.section.chapter.book.title
         })
+    
+    # 获取当前用户可用的所有书籍信息
+    books = Book.objects.all()
+    book_list = [{'id': book.id, 'title': book.title} for book in books]
     
     # 构建提示词
     prompt = f"""
 作为一个智能教育助手，请根据以下学生的错题记录，推荐5个适合该学生练习的题目。
-每道题目应该与学生的错题相关，但不应过于简单或过于困难。
 
-学生错题记录:
+学生的错题记录：
 {json.dumps(exercises_info, ensure_ascii=False, indent=2)}
 
-请根据以上错题记录，分析学生的知识点薄弱区域，并推荐5个适合的练习题。
-对于选择题，必须提供选项和正确答案；对于所有题目，必须提供详细解析。
+可用的书籍列表:
+{json.dumps(book_list, ensure_ascii=False, indent=2)}
 
-每个推荐的题目应包含：
-1. content: 题目内容
-2. type: 题目类型（单选题/多选题/综合题）
-3. difficulty: 难度级别（简单/中等/困难）
-4. options: 若为选择题，提供A、B、C、D选项及其内容
-5. answer: 正确答案（单选题为A/B/C/D之一，多选题为逗号分隔的选项，如"A,C"）
-6. explanation: 详细解析
-7. knowledge_points: 相关知识点列表
-8. reason: 推荐理由
+请生成5个习题，每个习题需要包含以下信息：
+1. 题目内容
+2. 题目类型（单选题、多选题或综合题）
+3. 选项（如为选择题）
+4. 正确答案
+5. 解析
+6. 难度级别（简单、中等、困难）
+7. 相关知识点
+8. 推荐理由
+9. 所属书籍（必须从上面提供的书籍列表中选择一个最匹配的）
+
+请确保每个习题都有一个精确的"book_title"字段，表示该题目属于哪本书。这对于正确分类习题非常重要。
 
 请以JSON格式返回，格式如下:
 [
   {{
     "content": "题目内容",
-    "type": "题目类型",
-    "difficulty": "难度级别",
+    "type": "单选题/多选题/综合题",
     "options": {{
       "A": "选项A内容",
       "B": "选项B内容",
@@ -828,15 +844,16 @@ def _prepare_recommendation_prompt(user, mistake_collections):
       "D": "选项D内容"
     }},
     "answer": "正确答案",
-    "explanation": "详细解析",
+    "explanation": "题目解析",
+    "difficulty": "简单/中等/困难",
     "knowledge_points": ["知识点1", "知识点2"],
-    "reason": "推荐理由"
+    "reason": "推荐理由",
+    "book_title": "所属书籍标题"
   }},
   ...
 ]
-
-注意：确保所有选择题都提供完整的选项内容，以及正确的答案和解析。
 """
+    
     return prompt
 
 def _call_large_language_model_with_retry(prompt, model_type="grok", max_retries=3, timeout=60):
@@ -1274,13 +1291,23 @@ def _generate_exercises_from_knowledge(knowledge_points, user=None):
     if not knowledge_points:
         return []
     
+    # 获取所有书籍信息
+    books = Book.objects.all()
+    book_list = [{'id': book.id, 'title': book.title} for book in books]
+    
     # 构建提示词
     prompt = f"""
 根据以下知识点，生成相关的练习题：
 {', '.join(knowledge_points)}
 
+可用的书籍列表:
+{json.dumps(book_list, ensure_ascii=False, indent=2)}
+
 请为每个知识点生成1-2道练习题，包括题目内容、选项（如适用）和答案。
 每道题应该清晰、具体，并能够有效测试对该知识点的理解。
+
+重要：对于每道题目，请仔细判断它最应该属于哪本书籍，并在"book_title"字段中提供书籍标题。
+这对于正确分类习题非常重要。
 
 请以JSON格式返回，格式如下:
 [
@@ -1295,7 +1322,8 @@ def _generate_exercises_from_knowledge(knowledge_points, user=None):
     }},
     "answer": "正确答案", // 单选题为A/B/C/D之一，多选题为多个选项以逗号分隔，如"A,C"
     "explanation": "解析",
-    "knowledge_point": "相关知识点"
+    "knowledge_point": "相关知识点",
+    "book_title": "所属书籍标题" // 必须从上面提供的书籍列表中选择一个最匹配的
   }},
   ...
 ]
@@ -1308,6 +1336,9 @@ def _generate_exercises_from_knowledge(knowledge_points, user=None):
         
         # 如果提供了用户，则将生成的习题保存到数据库
         if user and isinstance(generated_exercises, list):
+            # 获取所有书籍的字典
+            books_dict = {book.title: book for book in Book.objects.all()}
+            
             saved_exercises = []
             for item in generated_exercises:
                 if isinstance(item, dict) and 'content' in item:
@@ -1315,7 +1346,7 @@ def _generate_exercises_from_knowledge(knowledge_points, user=None):
                     exercise_type = 'single'
                     if item.get('type') == '多选题' or item.get('type') == 'multiple':
                         exercise_type = 'multiple'
-                    elif item.get('type') == '综合题':
+                    elif item.get('type') == 'comprehensive':
                         exercise_type = 'comprehensive'
                     
                     # 获取知识点
@@ -1330,6 +1361,12 @@ def _generate_exercises_from_knowledge(knowledge_points, user=None):
                         else:
                             knowledge_points_list = [knowledge_point]
                     
+                    # 根据题目内容找到对应的书籍
+                    book = None
+                    book_title = item.get('book_title')
+                    if book_title and book_title in books_dict:
+                        book = books_dict[book_title]
+                    
                     # 保存到数据库
                     ai_exercise = AIGeneratedExercise.objects.create(
                         user=user,
@@ -1341,7 +1378,8 @@ def _generate_exercises_from_knowledge(knowledge_points, user=None):
                         explanation=item.get('explanation', ''),
                         knowledge_points=knowledge_points_list,
                         reason='基于知识点提取生成',
-                        difficulty='medium'  # 默认中等难度
+                        difficulty='medium',  # 默认中等难度
+                        book=book  # 使用题目指定的书籍
                     )
                     
                     # 添加数据库ID到返回的习题中，以便前端使用
@@ -1641,7 +1679,7 @@ def my_ai_exercises(request):
     # 获取当前用户的所有AI生成习题
     ai_exercises = AIGeneratedExercise.objects.filter(
         user=request.user
-    ).order_by('-created_at')
+    ).select_related('book').order_by('-created_at')
     
     # 按来源/模型类型分组
     by_model = {}
@@ -1650,6 +1688,32 @@ def my_ai_exercises(request):
         if model_type not in by_model:
             by_model[model_type] = []
         by_model[model_type].append(exercise)
+    
+    # 按书籍分组
+    by_book = {}
+    for exercise in ai_exercises:
+        if exercise.book:
+            book_id = exercise.book.id
+            book_title = exercise.book.title
+            if book_id not in by_book:
+                by_book[book_id] = {
+                    'title': book_title,
+                    'exercises': []
+                }
+            by_book[book_id]['exercises'].append(exercise)
+    
+    # 预先统计不同类型的习题数量
+    single_count = 0
+    multiple_count = 0
+    comprehensive_count = 0
+    
+    for exercise in ai_exercises:
+        if exercise.type == 'single':
+            single_count += 1
+        elif exercise.type == 'multiple':
+            multiple_count += 1
+        elif exercise.type == 'comprehensive':
+            comprehensive_count += 1
     
     # 获取用户的练习记录
     attempt_records = AIExerciseAttempt.objects.filter(
@@ -1664,11 +1728,81 @@ def my_ai_exercises(request):
             attempts_by_exercise[exercise_id] = []
         attempts_by_exercise[exercise_id].append(attempt)
     
+    # 获取未分类习题的数量
+    unclassified_count = AIGeneratedExercise.objects.filter(
+        user=request.user, 
+        book__isnull=True
+    ).count()
+    
     context = {
         'ai_exercises': ai_exercises,
         'by_model': by_model,
+        'by_book': by_book,
         'attempts_by_exercise': attempts_by_exercise,
-        'total_count': ai_exercises.count()
+        'total_count': ai_exercises.count(),
+        'single_count': single_count,
+        'multiple_count': multiple_count,
+        'comprehensive_count': comprehensive_count,
+        'unclassified_count': unclassified_count
     }
     
     return render(request, 'courses/my_ai_exercises.html', context)
+
+@login_required
+def reclassify_ai_exercises_view(request):
+    """重新分类AI习题的视图函数"""
+    if request.method == 'POST':
+        model_type = request.POST.get('model_type', 'grok')
+        
+        # 获取所有未分类的习题
+        unclassified_exercises = AIGeneratedExercise.objects.filter(
+            user=request.user,
+            book__isnull=True
+        )
+        total_count = unclassified_exercises.count()
+        
+        if total_count == 0:
+            messages.info(request, '没有需要分类的习题')
+            return redirect('courses:my_ai_exercises')
+        
+        # 开始异步任务
+        messages.success(request, f'开始对 {total_count} 道习题进行分类，这可能需要几分钟时间。完成后结果将显示在习题库中。')
+        
+        # 这里应该启动Celery任务，但为了简单起见，我们直接调用命令
+        from django.core.management import call_command
+        try:
+            # 分批处理，每批5个
+            call_command('reclassify_ai_exercises', batch=5, model=model_type)
+            messages.success(request, '分类完成！')
+        except Exception as e:
+            messages.error(request, f'分类过程中出错: {str(e)}')
+        
+        return redirect('courses:my_ai_exercises')
+    
+    return redirect('courses:my_ai_exercises')
+
+@login_required
+def clear_ai_exercises_view(request):
+    """清空AI习题库的视图函数"""
+    if request.method == 'POST':
+        confirm = request.POST.get('confirm') == 'true'
+        
+        if not confirm:
+            messages.warning(request, '请确认您要清空所有AI习题')
+            return redirect('courses:my_ai_exercises')
+        
+        # 获取当前用户的AI习题和答题记录数量
+        exercise_count = AIGeneratedExercise.objects.filter(user=request.user).count()
+        attempt_count = AIExerciseAttempt.objects.filter(user=request.user).count()
+        
+        # 删除当前用户的答题记录
+        AIExerciseAttempt.objects.filter(user=request.user).delete()
+        
+        # 删除当前用户的习题
+        AIGeneratedExercise.objects.filter(user=request.user).delete()
+        
+        messages.success(request, f'已清空您的AI习题库，删除了 {exercise_count} 道习题和 {attempt_count} 条答题记录')
+        
+        return redirect('courses:my_ai_exercises')
+    
+    return redirect('courses:my_ai_exercises')

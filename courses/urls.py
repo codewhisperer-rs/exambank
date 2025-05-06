@@ -36,4 +36,6 @@ urlpatterns = [
     
     # 新增 - AI习题库
     path('ai-exercises/', views.my_ai_exercises, name='my_ai_exercises'),
+    path('ai-exercises/reclassify/', views.reclassify_ai_exercises_view, name='reclassify_ai_exercises'),
+    path('ai-exercises/clear/', views.clear_ai_exercises_view, name='clear_ai_exercises'),
 ] 

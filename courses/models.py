@@ -172,6 +172,7 @@ class AIGeneratedExercise(models.Model):
     knowledge_points = models.JSONField(null=True, blank=True, verbose_name='相关知识点')
     reason = models.TextField(blank=True, verbose_name='推荐理由')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    book = models.ForeignKey(Book, on_delete=models.SET_NULL, null=True, blank=True, related_name='ai_exercises', verbose_name='关联书籍')
     
     class Meta:
         verbose_name = 'AI生成习题'

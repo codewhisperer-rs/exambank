@@ -17,24 +17,24 @@
     </h2>
     <div id="collapse-{{ exercise.id }}" class="accordion-collapse collapse" 
          aria-labelledby="heading-{{ exercise.id }}">
-        <div class="accordion-body">
+        <div class="accordion-body tab-specific-content">
             <div class="exercise-content mb-3 arithmatex">{{ exercise.content|safe }}</div>
             
             <!-- 选择题选项 -->
             {% if exercise.type == 'single' or exercise.type == 'multiple' %}
-                <form id="exercise-form-{{ exercise.id }}" class="mb-3">
+                <form id="exercise-form-{{ exercise.id }}" class="mb-3 exercise-form">
                     {% csrf_token %}
                     <div class="options-container">
                         {% for key, value in exercise.options.items %}
                             <div class="form-check mb-2 p-2 border rounded">
                                 {% if exercise.type == 'single' %}
                                 <input class="form-check-input" type="radio" name="answer-{{ exercise.id }}" 
-                                       id="option-{{ exercise.id }}-{{ key }}" value="{{ key }}">
+                                       id="option-{{ exercise.id }}-{{ key }}-{{ forloop.parentloop.counter }}" value="{{ key }}">
                                 {% else %}
                                 <input class="form-check-input" type="checkbox" name="answer-{{ exercise.id }}" 
-                                       id="option-{{ exercise.id }}-{{ key }}" value="{{ key }}">
+                                       id="option-{{ exercise.id }}-{{ key }}-{{ forloop.parentloop.counter }}" value="{{ key }}">
                                 {% endif %}
-                                <label class="form-check-label arithmatex w-100" for="option-{{ exercise.id }}-{{ key }}">
+                                <label class="form-check-label arithmatex w-100" for="option-{{ exercise.id }}-{{ key }}-{{ forloop.parentloop.counter }}">
                                     <strong>{{ key }}.</strong> {{ value|safe }}
                                 </label>
                             </div>
@@ -99,6 +99,12 @@
                                     {{ exercise.get_difficulty_display }}
                                 </span>
                             </li>
+                            {% if exercise.book %}
+                            <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                                <span>关联书籍</span>
+                                <span class="badge bg-info text-dark">{{ exercise.book.title }}</span>
+                            </li>
+                            {% endif %}
                         </ul>
                     </div>
                     <div class="col-md-6">

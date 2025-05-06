@@ -157,6 +157,12 @@
                                     <strong>解析：</strong> {{ exercise.explanation }}
                                 </div>
                                 {% endif %}
+                                
+                                {% if exercise.book_title %}
+                                <div class="mt-2">
+                                    <strong>关联书籍：</strong> {{ exercise.book_title }}
+                                </div>
+                                {% endif %}
                             </div>
                             
                             <!-- 按钮 -->
