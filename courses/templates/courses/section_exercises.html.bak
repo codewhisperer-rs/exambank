@@ -1,10 +1,8 @@
 {% extends 'courses/base.html' %}
-{% load static %}
 
 {% block title %}{{ section.title }} - 习题练习 - 计算机考研题库{% endblock %}
 
 {% block content %}
-{% csrf_token %}
 <nav aria-label="breadcrumb">
     <ol class="breadcrumb">
         <li class="breadcrumb-item"><a href="{% url 'courses:index' %}">首页</a></li>
@@ -184,85 +182,49 @@ document.querySelectorAll('.check-answer').forEach(button => {
             return;
         }
         
-        // 向服务器提交答题记录
-        submitExerciseAttempt(exerciseId, selectedOption, (response) => {
-            // 根据服务器返回结果处理界面
-            const isCorrect = response.is_correct;
-            
-            // 比较答案
-            if (isCorrect) {
-                // 答案正确
-                correctFeedback.style.display = 'block';
-                // 为正确选项添加绿色边框
-                radioInputs.forEach(input => {
-                    if (input.value === correctAnswer) {
-                        input.closest('.form-check').classList.add('border', 'border-success', 'bg-success-subtle', 'p-2');
-                    }
-                });
-            } else {
-                // 答案错误
-                incorrectFeedback.style.display = 'block';
-                // 为错误选项添加红色边框，为正确选项添加绿色边框
-                radioInputs.forEach(input => {
-                    if (input.value === selectedOption) {
-                        input.closest('.form-check').classList.add('border', 'border-danger', 'bg-danger-subtle', 'p-2');
-                    }
-                    if (input.value === correctAnswer) {
-                        input.closest('.form-check').classList.add('border', 'border-success', 'bg-success-subtle', 'p-2');
-                    }
-                });
-            }
-            
-            // 禁用所有单选按钮，防止再次选择
+        // 比较答案
+        if (selectedOption === correctAnswer) {
+            // 答案正确
+            correctFeedback.style.display = 'block';
+            // 为正确选项添加绿色边框
             radioInputs.forEach(input => {
-                input.disabled = true;
-            });
-            
-            // 隐藏提交按钮
-            this.style.display = 'none';
-            
-            // 显示完整解析
-            const answerDiv = document.querySelector(`#answer_${exerciseId}`);
-            if (answerDiv) {
-                answerDiv.style.display = 'block';
-                const showAnswerBtn = document.querySelector(`button[data-target="#answer_${exerciseId}"]`);
-                if (showAnswerBtn) {
-                    showAnswerBtn.textContent = '隐藏答案';
+                if (input.value === correctAnswer) {
+                    input.closest('.form-check').classList.add('border', 'border-success', 'bg-success-subtle', 'p-2');
                 }
-            }
+            });
+        } else {
+            // 答案错误
+            incorrectFeedback.style.display = 'block';
+            // 为错误选项添加红色边框，为正确选项添加绿色边框
+            radioInputs.forEach(input => {
+                if (input.value === selectedOption) {
+                    input.closest('.form-check').classList.add('border', 'border-danger', 'bg-danger-subtle', 'p-2');
+                }
+                if (input.value === correctAnswer) {
+                    input.closest('.form-check').classList.add('border', 'border-success', 'bg-success-subtle', 'p-2');
+                }
+            });
+        }
+        
+        // 禁用所有单选按钮，防止再次选择
+        radioInputs.forEach(input => {
+            input.disabled = true;
         });
+        
+        // 隐藏提交按钮
+        this.style.display = 'none';
+        
+        // 显示完整解析
+        const answerDiv = document.querySelector(`#answer_${exerciseId}`);
+        if (answerDiv) {
+            answerDiv.style.display = 'block';
+            const showAnswerBtn = document.querySelector(`button[data-target="#answer_${exerciseId}"]`);
+            if (showAnswerBtn) {
+                showAnswerBtn.textContent = '隐藏答案';
+            }
+        }
     });
 });
-
-// 提交答题记录到服务器
-function submitExerciseAttempt(exerciseId, userAnswer, callback) {
-    // 获取CSRF Token
-    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-    
-    // 发送AJAX请求
-    fetch('{% url "courses:submit_exercise_attempt" %}', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfToken
-        },
-        body: JSON.stringify({
-            exercise_id: exerciseId,
-            user_answer: userAnswer
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.status === 'success') {
-            callback(data);
-        } else {
-            console.error('提交答题记录失败:', data.message);
-        }
-    })
-    .catch(error => {
-        console.error('提交答题记录时发生错误:', error);
-    });
-}
 
 // 添加重置功能
 document.querySelectorAll('.options').forEach(optionGroup => {

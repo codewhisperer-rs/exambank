@@ -1,0 +1,259 @@
+{% extends 'courses/base.html' %}
+{% load static %}
+
+{% block title %}我的错题集{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+<div class="container mt-4">
+    <h1 class="mb-4">我的错题集 <small class="text-muted">(共{{ total_mistakes }}题)</small></h1>
+    
+    <div class="row">
+        <!-- 左侧：错题列表 -->
+        <div class="col-md-8">
+            {% if books_list %}
+                <div class="accordion" id="mistakeAccordion">
+                    {% for book_data in books_list %}
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="book-{{ book_data.book.id }}">
+                                <button class="accordion-button" type="button" data-bs-toggle="collapse" 
+                                        data-bs-target="#collapse-book-{{ book_data.book.id }}" aria-expanded="true">
+                                    {{ book_data.book.title }}
+                                </button>
+                            </h2>
+                            <div id="collapse-book-{{ book_data.book.id }}" class="accordion-collapse collapse show" 
+                                 aria-labelledby="book-{{ book_data.book.id }}">
+                                <div class="accordion-body">
+                                    {% for chapter_data in book_data.chapters %}
+                                        <div class="chapter-item mb-3">
+                                            <h5>第{{ chapter_data.chapter.number }}章：{{ chapter_data.chapter.title }}</h5>
+                                            {% for section_data in chapter_data.sections %}
+                                                <div class="section-item ms-3 mb-2">
+                                                    <h6>{{ section_data.section.number }} {{ section_data.section.title }}</h6>
+                                                    <ul class="list-group">
+                                                        {% for mistake in section_data.mistakes %}
+                                                            <li class="list-group-item">
+                                                                <div class="d-flex justify-content-between align-items-center">
+                                                                    <div>
+                                                                        <a href="#" class="mistake-detail-link" 
+                                                                           data-exercise-id="{{ mistake.exercise.id }}">
+                                                                            题 {{ mistake.exercise.number }}：{{ mistake.exercise.content|striptags|truncatechars:50 }}
+                                                                        </a>
+                                                                        <div class="text-muted small mt-1">
+                                                                            尝试 {{ mistake.attempt_count }} 次，正确 {{ mistake.correct_count }} 次
+                                                                            {% if mistake.attempt_count > 0 %}
+                                                                                (正确率: {{ mistake.accuracy_rate|floatformat:0 }}%)
+                                                                            {% endif %}
+                                                                        </div>
+                                                                        {% if mistake.notes %}
+                                                                            <div class="notes-preview mt-1 small">
+                                                                                <i class="bi bi-journal-text"></i> {{ mistake.notes|truncatechars:50 }}
+                                                                            </div>
+                                                                        {% endif %}
+                                                                    </div>
+                                                                    <div>
+                                                                        <button class="btn btn-sm btn-outline-primary notes-btn" 
+                                                                                data-exercise-id="{{ mistake.exercise.id }}"
+                                                                                data-current-note="{{ mistake.notes|default:'' }}">
+                                                                            <i class="bi bi-pencil"></i>
+                                                                        </button>
+                                                                        <button class="btn btn-sm btn-outline-danger remove-btn" 
+                                                                                data-exercise-id="{{ mistake.exercise.id }}">
+                                                                            <i class="bi bi-trash"></i>
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            </li>
+                                                        {% endfor %}
+                                                    </ul>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="alert alert-info">
+                    您的错题集还是空的。开始做题吧，错误的题目会自动添加到这里！
+                </div>
+            {% endif %}
+        </div>
+        
+        <!-- 右侧：知识点统计和推荐 -->
+        <div class="col-md-4">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">知识点薄弱区域</h5>
+                </div>
+                <div class="card-body">
+                    {% if knowledge_stats %}
+                        <ul class="list-group">
+                            {% for item in knowledge_stats|slice:":10" %}
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    {{ item.knowledge__title }}
+                                    <span class="badge bg-primary rounded-pill">{{ item.frequency }}</span>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="card-text">还没有足够的数据分析知识点薄弱区域。</p>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">练习推荐</h5>
+                </div>
+                <div class="card-body">
+                    <p class="card-text">根据您的错题情况，系统可以为您推荐相关练习题。</p>
+                    <a href="{% url 'courses:recommended_exercises' %}" class="btn btn-primary">获取推荐习题</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 错题详情模态框 -->
+<div class="modal fade" id="mistakeDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">题目详情</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="exercise-content"></div>
+                <div class="answer-section mt-3">
+                    <h6>正确答案：</h6>
+                    <div class="correct-answer"></div>
+                </div>
+                <div class="explanation-section mt-3">
+                    <h6>解析：</h6>
+                    <div class="explanation"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 添加笔记模态框 -->
+<div class="modal fade" id="addNoteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">添加笔记</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="noteExerciseId" value="">
+                <div class="mb-3">
+                    <label for="noteContent" class="form-label">笔记内容</label>
+                    <textarea class="form-control" id="noteContent" rows="5"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="saveNoteBtn">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    $(document).ready(function() {
+        // 查看错题详情
+        $('.mistake-detail-link').click(function(e) {
+            e.preventDefault();
+            const exerciseId = $(this).data('exercise-id');
+            
+            // 这里需要发送AJAX请求获取题目详情
+            $.ajax({
+                url: "{% url 'courses:exercise_detail_api' 0 %}".replace('0', exerciseId),  // 使用Django URL模板生成
+                method: 'GET',
+                success: function(data) {
+                    $('#mistakeDetailModal .exercise-content').html(data.content);
+                    $('#mistakeDetailModal .correct-answer').text(data.answer);
+                    $('#mistakeDetailModal .explanation').html(data.explanation);
+                    $('#mistakeDetailModal').modal('show');
+                },
+                error: function() {
+                    alert('获取题目详情失败');
+                }
+            });
+        });
+        
+        // 从错题集移除
+        $('.remove-btn').click(function() {
+            const exerciseId = $(this).data('exercise-id');
+            const listItem = $(this).closest('li');
+            
+            if (confirm('确定要从错题集中移除这道题吗？')) {
+                $.ajax({
+                    url: '{% url "courses:remove_from_mistakes" %}',
+                    method: 'POST',
+                    data: JSON.stringify({exercise_id: exerciseId}),
+                    contentType: 'application/json',
+                    headers: {'X-CSRFToken': getCsrfToken()},
+                    success: function(data) {
+                        listItem.fadeOut(function() {
+                            $(this).remove();
+                        });
+                    },
+                    error: function() {
+                        alert('移除题目失败');
+                    }
+                });
+            }
+        });
+        
+        // 添加/编辑笔记
+        $('.notes-btn').click(function() {
+            const exerciseId = $(this).data('exercise-id');
+            const currentNote = $(this).data('current-note');
+            
+            $('#noteExerciseId').val(exerciseId);
+            $('#noteContent').val(currentNote);
+            $('#addNoteModal').modal('show');
+        });
+        
+        // 保存笔记
+        $('#saveNoteBtn').click(function() {
+            const exerciseId = $('#noteExerciseId').val();
+            const note = $('#noteContent').val();
+            
+            $.ajax({
+                url: '{% url "courses:add_mistake_note" %}',
+                method: 'POST',
+                data: JSON.stringify({
+                    exercise_id: exerciseId,
+                    note: note
+                }),
+                contentType: 'application/json',
+                headers: {'X-CSRFToken': getCsrfToken()},
+                success: function(data) {
+                    $('#addNoteModal').modal('hide');
+                    // 刷新页面以显示更新后的笔记
+                    location.reload();
+                },
+                error: function() {
+                    alert('保存笔记失败');
+                }
+            });
+        });
+        
+        // 获取CSRF Token
+        function getCsrfToken() {
+            return document.querySelector('[name=csrfmiddlewaretoken]').value;
+        }
+    });
+</script>
+{% endblock %} 
