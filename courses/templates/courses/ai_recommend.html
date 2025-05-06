@@ -13,10 +13,6 @@
             <div class="card mb-4">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="mb-0">获取AI推荐题目</h5>
-                    <div class="btn-group" role="group">
-                        <a href="{% url 'courses:ai_recommend' %}?model=grok" class="btn btn-outline-primary {% if not request.GET.model or request.GET.model == 'grok' %}active{% endif %}">Grok</a>
-                        <a href="{% url 'courses:ai_recommend' %}?model=deepseek" class="btn btn-outline-primary {% if request.GET.model == 'deepseek' %}active{% endif %}">Deepseek</a>
-                    </div>
                 </div>
                 <div class="card-body">
                     <p>基于您的错题记录，AI将推荐适合您练习的题目。这些题目会针对您的薄弱知识点，帮助您更好地掌握相关概念。</p>
@@ -39,6 +35,12 @@
                             </button>
                         </div>
                     </div>
+                    
+                    <!-- 添加错误消息容器 -->
+                    <div id="errorContainer" class="mt-3" style="display: none;"></div>
+                    
+                    <!-- 添加成功消息容器 -->
+                    <div id="successContainer" class="mt-3" style="display: none;"></div>
                     
                     <div id="loadingIndicator" class="text-center my-4" style="display: none;">
                         <div class="spinner-border text-primary" role="status">
@@ -293,31 +295,6 @@
         
         <!-- 右侧：知识点薄弱区域 -->
         <div class="col-md-4">
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h5 class="card-title mb-0">知识点薄弱区域分析</h5>
-                </div>
-                <div class="card-body">
-                    {% if knowledge_stats %}
-                        <p class="card-text mb-3">
-                            根据您的错题记录，系统分析出以下知识点需要加强：
-                        </p>
-                        <ul class="list-group">
-                            {% for item in knowledge_stats|slice:":10" %}
-                                <li class="list-group-item d-flex justify-content-between align-items-center">
-                                    {{ item.knowledge__title }}
-                                    <span class="badge bg-primary rounded-pill">{{ item.frequency }}</span>
-                                </li>
-                            {% endfor %}
-                        </ul>
-                    {% else %}
-                        <p class="card-text">
-                            还没有足够的数据分析知识点薄弱区域。请先完成一些练习题目，系统将自动分析您的学习情况。
-                        </p>
-                    {% endif %}
-                </div>
-            </div>
-            
             <div class="card">
                 <div class="card-header">
                     <h5 class="card-title mb-0">AI推荐说明</h5>
@@ -355,6 +332,15 @@
         
         // 定义获取推荐的函数
         function getRecommendations() {
+            // 清除之前的消息
+            const errorContainer = document.getElementById('errorContainer');
+            errorContainer.style.display = 'none';
+            errorContainer.innerHTML = '';
+            
+            const successContainer = document.getElementById('successContainer');
+            successContainer.style.display = 'none';
+            successContainer.innerHTML = '';
+            
             if (loadingIndicator) {
                 loadingIndicator.style.display = 'block';
             }
@@ -378,21 +364,29 @@
                 console.log('推荐响应:', data);
                 
                 if (data.status === 'success') {
-                    // 重定向到结果页面
-                    if (data.redirect) {
-                        // 确保重定向URL是完整的，包含域名
-                        if (data.redirect.startsWith('/')) {
-                            window.location.href = data.redirect;
-                        } else {
-                            window.location.href = '/' + data.redirect;
-                        }
-                    } else {
-                        alert('习题生成成功！请查看您的习题库。');
-                        // 没有指定重定向时，默认重定向到AI习题库页面
-                        window.location.href = '/ai-exercises/';
-                    }
+                    // 显示成功消息而不是自动跳转
+                    const successContainer = document.getElementById('successContainer');
+                    successContainer.className = 'alert alert-success mt-3';
+                    successContainer.innerHTML = `
+                        <i class="bi bi-check-circle-fill me-2"></i> 
+                        <strong>习题生成成功！</strong> 
+                        <a href="${data.redirect || '/ai-exercises/'}" class="alert-link">点击这里查看您的AI习题库</a>
+                    `;
+                    successContainer.style.display = 'block';
+                    
+                    // 隐藏加载指示器
+                    loadingIndicator.style.display = 'none';
                 } else {
-                    alert('生成习题失败: ' + data.message);
+                    // 显示错误消息在页面上，而不是跳转
+                    const errorContainer = document.getElementById('errorContainer');
+                    errorContainer.className = 'alert alert-danger mt-3';
+                    errorContainer.innerHTML = `<i class="bi bi-exclamation-triangle-fill me-2"></i> ${data.message || '模型调用失败，请稍后再试。'}`;
+                    errorContainer.style.display = 'block';
+                    
+                    // 5秒后自动隐藏错误提示
+                    setTimeout(() => {
+                        errorContainer.style.display = 'none';
+                    }, 5000);
                 }
             })
             .catch(error => {

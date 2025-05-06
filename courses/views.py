@@ -756,7 +756,7 @@ async def _prepare_recommendation_prompt_async(user, mistake_collections):
     # 安全地获取提示词
     return await sync_to_async(_prepare_recommendation_prompt)(user, mistake_collections)
 
-async def _call_large_language_model_with_retry(prompt, model_type="grok", max_retries=3, timeout=60):
+async def _call_large_language_model_with_retry(prompt, model_type="grok", max_retries=3, timeout=120):
     """带有重试机制的大语言模型API调用函数 (异步版本)
     
     Args:
@@ -873,7 +873,7 @@ async def _call_grok_api_async(client, prompt):
     }
     
     try:
-        response = await client.post(GROK_API_URL, headers=headers, json=data, timeout=60.0)
+        response = await client.post(GROK_API_URL, headers=headers, json=data, timeout=120.0)
         
         if response.status_code == 200:
             response_data = response.json()
@@ -945,7 +945,7 @@ async def _call_deepseek_api_async(client, prompt):
     }
     
     try:
-        response = await client.post(DEEPSEEK_API_URL, headers=headers, json=data, timeout=30.0)
+        response = await client.post(DEEPSEEK_API_URL, headers=headers, json=data, timeout=120.0)
         
         if response.status_code == 200:
             response_data = response.json()

@@ -273,6 +273,9 @@
         $('button[data-bs-toggle="tab"]').on('shown.bs.tab', function(e) {
             activeTabId = $(e.target).attr('data-bs-target').replace('#', '');
             console.log('标签页切换完成，当前标签页:', activeTabId);
+            
+            // 对新显示的标签页中的答案进行格式化
+            formatAllAnswers();
         });
         
         // 下拉菜单项点击处理
@@ -280,6 +283,9 @@
             const targetId = $(this).attr('data-bs-target').replace('#', '');
             activeTabId = targetId;
             console.log('下拉菜单项点击，当前标签页:', activeTabId);
+            
+            // 对新显示的标签页中的答案进行格式化
+            setTimeout(formatAllAnswers, 100); // 延迟一点执行，确保标签页已切换
         });
 
         // 使用jQuery事件委托处理提交答案按钮点击
@@ -336,18 +342,154 @@
             console.log('用户答案:', userAnswer);
             
             // 比较答案
-            const isCorrect = userAnswer.toUpperCase() === correctAnswer.toUpperCase();
+            let isCorrect = false;
+            
+            if (type === 'multiple') {
+                // 处理多选题，检查correctAnswer是否为JSON格式或Python列表格式
+                try {
+                    // 将用户答案转换为数组
+                    const userAnswerArray = userAnswer.split(',').map(a => a.toUpperCase()).sort();
+                    
+                    // 处理正确答案
+                    let correctAnswerArray = [];
+                    
+                    // 检查是否为Python风格的列表 ['A', 'B', 'D']
+                    if (correctAnswer.includes("'") && correctAnswer.includes("[") && correctAnswer.includes("]")) {
+                        // 移除所有引号、空格、方括号，然后按逗号分割
+                        const cleanAnswer = correctAnswer.replace(/[\[\]'"\s]/g, '');
+                        correctAnswerArray = cleanAnswer.split(',').map(a => a.toUpperCase()).sort();
+                    }
+                    // 检查是否为JSON格式数组
+                    else if (correctAnswer.startsWith('[')) {
+                        correctAnswerArray = JSON.parse(correctAnswer).map(a => a.toUpperCase()).sort();
+                    } 
+                    // 其他格式，假设是逗号分隔的字符串
+                    else {
+                        correctAnswerArray = correctAnswer.split(',').map(a => a.toUpperCase()).sort();
+                    }
+                    
+                    // 比较两个数组是否包含相同元素（忽略顺序）
+                    isCorrect = userAnswerArray.length === correctAnswerArray.length && 
+                                userAnswerArray.every((val, idx) => val === correctAnswerArray[idx]);
+                    
+                    console.log('用户答案数组:', userAnswerArray);
+                    console.log('正确答案数组:', correctAnswerArray);
+                    console.log('原始正确答案:', correctAnswer);
+                    
+                } catch (e) {
+                    // 如果解析失败，尝试另一种方法
+                    console.error('解析答案时出错:', e);
+                    try {
+                        // 如果是Python风格的列表，再次尝试不同方法
+                        if (correctAnswer.includes("'") && correctAnswer.includes("[") && correctAnswer.includes("]")) {
+                            const userAnswerSet = new Set(userAnswer.split(',').map(a => a.toUpperCase()));
+                            // 用正则表达式提取字母
+                            const matches = correctAnswer.match(/['"]([A-Z])['"]|([A-Z])/gi);
+                            const correctAnswerSet = new Set(
+                                matches ? matches.map(m => m.replace(/['"]/g, '').toUpperCase()) : []
+                            );
+                            
+                            // 检查集合是否相等
+                            isCorrect = userAnswerSet.size === correctAnswerSet.size &&
+                                        [...userAnswerSet].every(val => correctAnswerSet.has(val));
+                            
+                            console.log('备用方法 - 用户答案集合:', [...userAnswerSet]);
+                            console.log('备用方法 - 正确答案集合:', [...correctAnswerSet]);
+                        } else {
+                            isCorrect = userAnswer.toUpperCase() === correctAnswer.toUpperCase();
+                        }
+                    } catch (e2) {
+                        console.error('备用解析方法也失败了:', e2);
+                        isCorrect = userAnswer.toUpperCase() === correctAnswer.toUpperCase();
+                    }
+                }
+            } else {
+                // 单选题保持原来的比较逻辑，但增加调试信息
+                isCorrect = userAnswer.toUpperCase() === correctAnswer.toUpperCase();
+                console.log('单选题比较:', userAnswer.toUpperCase(), '===', correctAnswer.toUpperCase());
+            }
+            
             console.log('答案是否正确:', isCorrect);
             
             // 显示结果
             $resultDiv.show();
+            
+            // 格式化显示的正确答案文本
+            let displayCorrectAnswer = correctAnswer;
+            if (type === 'multiple' && correctAnswer) {
+                try {
+                    // 处理Python风格的列表
+                    if (correctAnswer.includes("'") && correctAnswer.includes("[") && correctAnswer.includes("]")) {
+                        // 移除所有引号、空格、方括号，然后按逗号分割
+                        const cleanAnswer = correctAnswer.replace(/[\[\]'"\s]/g, '');
+                        displayCorrectAnswer = cleanAnswer.split(',').join(', ');
+                    }
+                    // 处理JSON格式数组
+                    else if (correctAnswer.startsWith('[')) {
+                        const parsed = JSON.parse(correctAnswer);
+                        displayCorrectAnswer = parsed.join(', ');
+                    } 
+                    // 处理逗号分隔的字符串
+                    else if (correctAnswer.includes(',')) {
+                        displayCorrectAnswer = correctAnswer.split(',').join(', ');
+                    }
+                } catch (e) {
+                    console.error('格式化正确答案时出错:', e);
+                    // 保持原样显示，或尝试备用方法
+                    if (correctAnswer.includes("'") && correctAnswer.includes("[") && correctAnswer.includes("]")) {
+                        // 用正则表达式提取字母
+                        const matches = correctAnswer.match(/['"]([A-Z])['"]|([A-Z])/gi);
+                        if (matches) {
+                            displayCorrectAnswer = matches.map(m => m.replace(/['"]/g, '')).join(', ');
+                        }
+                    }
+                }
+            }
+            
             $resultDiv.html(isCorrect
                 ? '<div class="alert alert-success"><i class="bi bi-check-circle-fill"></i> 回答正确！</div>'
-                : '<div class="alert alert-danger"><i class="bi bi-x-circle-fill"></i> 回答错误！正确答案: ' + correctAnswer + '</div>');
+                : '<div class="alert alert-danger"><i class="bi bi-x-circle-fill"></i> 回答错误！正确答案: ' + displayCorrectAnswer + '</div>');
             
             // 显示当前标签页下的这道题的解析
             const $explanationDiv = $(this).closest('.accordion-item').find('.explanation').first();
             $explanationDiv.show();
+            
+            // 格式化该习题解析中的答案显示
+            $explanationDiv.find('.formatted-answer').each(function() {
+                const $this = $(this);
+                const answerText = $this.data('answer');
+                const answerType = $this.data('type');
+                
+                if (answerType === 'multiple' && answerText) {
+                    try {
+                        // 处理Python风格的列表 ['A', 'B', 'D']
+                        if (answerText.includes("'") && answerText.includes("[") && answerText.includes("]")) {
+                            // 移除所有引号、空格、方括号，然后按逗号分割
+                            const cleanAnswer = answerText.replace(/[\[\]'"\s]/g, '');
+                            $this.text(cleanAnswer.split(',').join(', '));
+                        }
+                        // 处理JSON格式数组
+                        else if (answerText.startsWith('[')) {
+                            const parsed = JSON.parse(answerText);
+                            $this.text(parsed.join(', '));
+                        }
+                        // 处理逗号分隔的字符串
+                        else if (answerText.includes(',')) {
+                            $this.text(answerText.split(',').join(', '));
+                        }
+                    } catch (e) {
+                        console.error('格式化解析区域答案时出错:', e);
+                        // 尝试备用方法
+                        if (answerText.includes("'") && answerText.includes("[") && answerText.includes("]")) {
+                            // 用正则表达式提取字母
+                            const matches = answerText.match(/['"]([A-Z])['"]|([A-Z])/gi);
+                            if (matches) {
+                                $this.text(matches.map(m => m.replace(/['"]/g, '')).join(', '));
+                            }
+                        }
+                    }
+                }
+            });
             
             // 禁用按钮和选项
             $button.prop('disabled', true);
@@ -401,6 +543,22 @@
             if ($explanationDiv.is(':hidden')) {
                 $explanationDiv.show();
                 $button.text('隐藏解析');
+                
+                // 格式化解析中的答案显示
+                $explanationDiv.find('.formatted-answer').each(function() {
+                    const $this = $(this);
+                    const answerText = $this.data('answer');
+                    const answerType = $this.data('type');
+                    
+                    if (answerType === 'multiple' && answerText && answerText.startsWith('[')) {
+                        try {
+                            const parsed = JSON.parse(answerText);
+                            $this.text(parsed.join(', '));
+                        } catch (e) {
+                            console.error('格式化解析区域答案时出错:', e);
+                        }
+                    }
+                });
             } else {
                 $explanationDiv.hide();
                 $button.text('查看解析');
@@ -408,6 +566,53 @@
         });
 
         console.log('AI习题库JS初始化完成');
+        
+        // 格式化所有解析区域中的答案显示
+        formatAllAnswers();
     });
+    
+    // 格式化答案显示的函数
+    function formatAllAnswers() {
+        $('.formatted-answer').each(function() {
+            const $this = $(this);
+            const answerText = $this.data('answer');
+            const type = $this.data('type');
+            
+            if (type === 'multiple' && answerText) {
+                try {
+                    // 处理Python风格的列表 ['A', 'B', 'D']
+                    if (answerText.includes("'") && answerText.includes("[") && answerText.includes("]")) {
+                        // 移除所有引号、空格、方括号，然后按逗号分割
+                        const cleanAnswer = answerText.replace(/[\[\]'"\s]/g, '');
+                        $this.text(cleanAnswer.split(',').join(', '));
+                    }
+                    // 处理JSON格式数组
+                    else if (answerText.startsWith('[')) {
+                        // 尝试解析JSON格式的答案
+                        const parsed = JSON.parse(answerText);
+                        $this.text(parsed.join(', '));
+                    } 
+                    // 处理逗号分隔的字符串
+                    else if (answerText.includes(',')) {
+                        // 处理逗号分隔的字符串
+                        $this.text(answerText.split(',').join(', '));
+                    }
+                } catch (e) {
+                    console.error('格式化答案显示时出错:', e);
+                    // 尝试备用方法
+                    if (answerText.includes("'") && answerText.includes("[") && answerText.includes("]")) {
+                        // 用正则表达式提取字母
+                        const matches = answerText.match(/['"]([A-Z])['"]|([A-Z])/gi);
+                        if (matches) {
+                            $this.text(matches.map(m => m.replace(/['"]/g, '')).join(', '));
+                        }
+                    }
+                }
+            }
+        });
+        
+        // 在控制台输出一条消息，帮助调试
+        console.log('答案格式化完成');
+    }
 </script>
 {% endblock %} 

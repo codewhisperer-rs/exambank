@@ -78,7 +78,9 @@
                     <div class="card-body arithmatex">
                         <div class="mb-2">
                             <strong>正确答案：</strong> 
-                            <span>{{ exercise.answer }}</span>
+                            <span class="formatted-answer" data-answer="{{ exercise.answer }}" data-type="{{ exercise.type }}">
+                                {{ exercise.answer }}
+                            </span>
                         </div>
                         {% if exercise.explanation %}
                             <div>{{ exercise.explanation|safe }}</div>
