@@ -38,40 +38,42 @@
                             </h5>
                         
                             {% if exercise.type == 'single' or exercise.type == 'multiple' %}
-                            <div class="options mt-3">
-                                {% if exercise.options_dict %}
-                                    {% for key, value in exercise.options_dict.items %}
-                                    <div class="form-check option-label mb-2">
-                                        {% if exercise.type == 'single' %}
-                                        <input class="form-check-input" type="radio" name="exercise_{{ exercise.id }}" id="option_{{ exercise.id }}_{{ key }}" value="{{ key }}" data-correct="{{ exercise.answer }}">
-                                        {% else %}
-                                        <input class="form-check-input" type="checkbox" name="exercise_{{ exercise.id }}" id="option_{{ exercise.id }}_{{ key }}" value="{{ key }}" data-correct="{{ exercise.answer }}">
-                                        {% endif %}
-                                        <label class="form-check-label w-100" for="option_{{ exercise.id }}_{{ key }}">
-                                            <strong>{{ key }}.</strong> {{ value|safe }}
-                                        </label>
-                                    </div>
-                                    {% endfor %}
-                                    
-                                    <!-- 添加反馈提示区域 -->
-                                    <div class="feedback mt-2" id="feedback_{{ exercise.id }}" style="display: none;">
-                                        <div class="alert alert-success correct-feedback" style="display: none;">
-                                            <i class="bi bi-check-circle-fill"></i> 回答正确！
+                            <div id="exercise-form-{{ exercise.id }}">
+                                <div class="options mt-3">
+                                    {% if exercise.options_dict %}
+                                        {% for key, value in exercise.options_dict.items %}
+                                        <div class="form-check option-label mb-2">
+                                            {% if exercise.type == 'single' %}
+                                            <input class="form-check-input" type="radio" name="exercise_{{ exercise.id }}" id="option_{{ exercise.id }}_{{ key }}" value="{{ key }}" data-correct="{{ exercise.answer }}">
+                                            {% else %}
+                                            <input class="form-check-input" type="checkbox" name="exercise_{{ exercise.id }}[]" id="option_{{ exercise.id }}_{{ key }}" value="{{ key }}" data-correct="{{ exercise.answer }}">
+                                            {% endif %}
+                                            <label class="form-check-label w-100" for="option_{{ exercise.id }}_{{ key }}">
+                                                <strong>{{ key }}.</strong> {{ value|safe }}
+                                            </label>
                                         </div>
-                                        <div class="alert alert-danger incorrect-feedback" style="display: none;">
-                                            <i class="bi bi-x-circle-fill"></i> 回答错误，正确答案是：<strong>{{ exercise.answer }}</strong>
+                                        {% endfor %}
+                                        
+                                        <!-- 添加结果显示区域 -->
+                                        <div id="exercise-result-{{ exercise.id }}"></div>
+                                        
+                                        <!-- 添加加载指示器 -->
+                                        <div id="loading-indicator-{{ exercise.id }}" class="text-center mt-2" style="display: none;">
+                                            <div class="spinner-border text-primary" role="status">
+                                                <span class="visually-hidden">加载中...</span>
+                                            </div>
                                         </div>
-                                    </div>
-                                    
-                                    <!-- 添加提交按钮 -->
-                                    <button class="btn btn-sm btn-primary mt-2 check-answer" data-exercise-id="{{ exercise.id }}" data-correct-answer="{{ exercise.answer }}">
-                                        提交答案
-                                    </button>
-                                {% else %}
-                                    <div class="alert alert-warning">
-                                        此题暂无选项数据
-                                    </div>
-                                {% endif %}
+                                        
+                                        <!-- 添加提交按钮 -->
+                                        <button id="submit-btn-{{ exercise.id }}" class="btn btn-primary mt-2 check-answer" data-exercise-id="{{ exercise.id }}" data-exercise-type="{{ exercise.type }}">
+                                            提交答案
+                                        </button>
+                                    {% else %}
+                                        <div class="alert alert-warning">
+                                            此题暂无选项数据
+                                        </div>
+                                    {% endif %}
+                                </div>
                             </div>
                             {% endif %}
                         
@@ -157,178 +159,185 @@ document.querySelectorAll('.show-answer').forEach(button => {
 document.querySelectorAll('.check-answer').forEach(button => {
     button.addEventListener('click', function() {
         const exerciseId = this.dataset.exerciseId;
-        const correctAnswer = this.dataset.correctAnswer;
-        const radioInputs = document.querySelectorAll(`input[name="exercise_${exerciseId}"]`);
-        const feedbackDiv = document.getElementById(`feedback_${exerciseId}`);
-        const correctFeedback = feedbackDiv.querySelector('.correct-feedback');
-        const incorrectFeedback = feedbackDiv.querySelector('.incorrect-feedback');
+        const exerciseType = this.dataset.exerciseType || 'single'; // 获取题目类型
         
-        // 隐藏之前的反馈
-        feedbackDiv.style.display = 'block';
-        correctFeedback.style.display = 'none';
-        incorrectFeedback.style.display = 'none';
+        // 根据题目类型获取用户的选择
+        let userAnswer;
         
-        // 获取用户的选择
-        let selectedOption = '';
-        radioInputs.forEach(input => {
-            if (input.checked) {
-                selectedOption = input.value;
+        if (exerciseType === 'single') {
+            // 单选题处理逻辑
+            const selectedOption = document.querySelector(`input[name="exercise_${exerciseId}"]:checked`);
+            if (!selectedOption) {
+                alert('请选择一个选项');
+                return;
             }
-        });
-        
-        // 检查答案
-        if (!selectedOption) {
-            // 如果用户没有选择任何选项
-            alert('请先选择一个选项！');
-            feedbackDiv.style.display = 'none';
+            userAnswer = selectedOption.value;
+        } else if (exerciseType === 'multiple') {
+            // 多选题处理逻辑
+            const selectedOptions = document.querySelectorAll(`input[name="exercise_${exerciseId}[]"]:checked`);
+            if (selectedOptions.length === 0) {
+                alert('请至少选择一个选项');
+                return;
+            }
+            userAnswer = Array.from(selectedOptions).map(option => option.value).join(',');
+        } else {
+            // 其他题型处理逻辑
+            alert('暂不支持此题型');
             return;
         }
         
         // 向服务器提交答题记录
-        submitExerciseAttempt(exerciseId, selectedOption, (response) => {
-            // 根据服务器返回结果处理界面
-            const isCorrect = response.is_correct;
-            
-            // 比较答案
-            if (isCorrect) {
-                // 答案正确
-                correctFeedback.style.display = 'block';
-                // 为正确选项添加绿色边框
-                radioInputs.forEach(input => {
-                    if (input.value === correctAnswer) {
-                        input.closest('.form-check').classList.add('border', 'border-success', 'bg-success-subtle', 'p-2');
-                    }
-                });
-            } else {
-                // 答案错误
-                incorrectFeedback.style.display = 'block';
-                // 为错误选项添加红色边框，为正确选项添加绿色边框
-                radioInputs.forEach(input => {
-                    if (input.value === selectedOption) {
-                        input.closest('.form-check').classList.add('border', 'border-danger', 'bg-danger-subtle', 'p-2');
-                    }
-                    if (input.value === correctAnswer) {
-                        input.closest('.form-check').classList.add('border', 'border-success', 'bg-success-subtle', 'p-2');
-                    }
-                });
-            }
-            
-            // 禁用所有单选按钮，防止再次选择
-            radioInputs.forEach(input => {
-                input.disabled = true;
-            });
-            
-            // 隐藏提交按钮
-            this.style.display = 'none';
-            
-            // 显示完整解析
-            const answerDiv = document.querySelector(`#answer_${exerciseId}`);
-            if (answerDiv) {
-                answerDiv.style.display = 'block';
-                const showAnswerBtn = document.querySelector(`button[data-target="#answer_${exerciseId}"]`);
-                if (showAnswerBtn) {
-                    showAnswerBtn.textContent = '隐藏答案';
-                }
-            }
-        });
+        submitExerciseAttempt(exerciseId, exerciseType, userAnswer);
     });
 });
 
-// 提交答题记录到服务器
-function submitExerciseAttempt(exerciseId, userAnswer, callback) {
-    // 获取CSRF Token
-    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-    
-    // 发送AJAX请求
-    fetch('{% url "courses:submit_exercise_attempt" %}', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfToken
-        },
-        body: JSON.stringify({
-            exercise_id: exerciseId,
-            user_answer: userAnswer
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.status === 'success') {
-            callback(data);
-        } else {
-            console.error('提交答题记录失败:', data.message);
-        }
-    })
-    .catch(error => {
-        console.error('提交答题记录时发生错误:', error);
-    });
-}
-
-// 添加重置功能
-document.querySelectorAll('.options').forEach(optionGroup => {
-    // 创建重置按钮
-    const resetButton = document.createElement('button');
-    resetButton.textContent = '重新作答';
-    resetButton.className = 'btn btn-sm btn-outline-secondary mt-2 ms-2 reset-answer';
-    resetButton.style.display = 'none';
-    
-    // 获取练习ID
-    const inputs = optionGroup.querySelectorAll('input');
-    if (inputs.length > 0) {
-        const name = inputs[0].name;
-        const exerciseId = name.split('_')[1];
-        resetButton.setAttribute('data-exercise-id', exerciseId);
-        
-        // 添加到提交按钮后面
-        const checkButton = optionGroup.querySelector(`.check-answer[data-exercise-id="${exerciseId}"]`);
-        if (checkButton) {
-            checkButton.parentNode.insertBefore(resetButton, checkButton.nextSibling);
+// 获取CSRF Token的辅助函数
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
         }
     }
+    return cookieValue;
+}
+
+// 提交答案的函数
+async function submitExerciseAttempt(exerciseId, exerciseType, userAnswer) {
+    // 显示加载状态
+    const loadingIndicator = document.getElementById(`loading-indicator-${exerciseId}`);
+    if (loadingIndicator) {
+        loadingIndicator.style.display = 'block';
+    }
     
-    // 添加点击事件
-    resetButton.addEventListener('click', function() {
-        const exerciseId = this.dataset.exerciseId;
-        const radioInputs = document.querySelectorAll(`input[name="exercise_${exerciseId}"]`);
-        const feedbackDiv = document.getElementById(`feedback_${exerciseId}`);
-        const checkButton = document.querySelector(`.check-answer[data-exercise-id="${exerciseId}"]`);
-        
-        // 重置单选按钮
-        radioInputs.forEach(input => {
-            input.disabled = false;
-            input.checked = false;
-            input.closest('.form-check').classList.remove('border', 'border-success', 'border-danger', 'bg-success-subtle', 'bg-danger-subtle', 'p-2');
+    try {
+        // 准备请求数据
+        const csrftoken = getCookie('csrftoken');
+        const response = await fetch('/api/submit-exercise-attempt/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrftoken
+            },
+            body: JSON.stringify({
+                exercise_id: exerciseId,
+                user_answer: userAnswer
+            })
         });
         
-        // 隐藏反馈
-        feedbackDiv.style.display = 'none';
+        // 处理响应
+        if (response.status === 401) {
+            // 用户未登录
+            alert('请先登录后再提交答案');
+            window.location.href = '/accounts/login/?next=' + window.location.pathname;
+            return;
+        }
         
-        // 显示提交按钮并隐藏重置按钮
-        checkButton.style.display = 'inline-block';
-        this.style.display = 'none';
+        if (!response.ok) {
+            throw new Error(`提交失败: ${response.status} ${response.statusText}`);
+        }
         
-        // 隐藏答案
-        const answerDiv = document.querySelector(`#answer_${exerciseId}`);
-        if (answerDiv) {
-            answerDiv.style.display = 'none';
-            const showAnswerBtn = document.querySelector(`button[data-target="#answer_${exerciseId}"]`);
-            if (showAnswerBtn) {
-                showAnswerBtn.textContent = '查看答案';
+        const data = await response.json();
+        
+        // 更新界面显示
+        const resultElement = document.getElementById(`exercise-result-${exerciseId}`);
+        if (resultElement) {
+            if (data.is_correct) {
+                resultElement.innerHTML = '<div class="alert alert-success mt-3">回答正确！</div>';
+            } else {
+                let resultHtml = '<div class="alert alert-danger mt-3">回答错误。';
+                if (data.correct_answer) {
+                    resultHtml += `<br>正确答案是: ${data.correct_answer}`;
+                }
+                if (data.explanation) {
+                    resultHtml += `<br>解释: ${data.explanation}`;
+                }
+                resultHtml += '</div>';
+                resultElement.innerHTML = resultHtml;
             }
         }
-    });
-});
-
-// 显示重置按钮
-document.querySelectorAll('.check-answer').forEach(button => {
-    button.addEventListener('click', function() {
-        const exerciseId = this.dataset.exerciseId;
-        const resetButton = document.querySelector(`.reset-answer[data-exercise-id="${exerciseId}"]`);
+        
+        // 禁用选项，防止重复提交
+        if (exerciseType === 'single') {
+            document.querySelectorAll(`input[name="exercise_${exerciseId}"]`).forEach(input => {
+                input.disabled = true;
+            });
+        } else if (exerciseType === 'multiple') {
+            document.querySelectorAll(`input[name="exercise_${exerciseId}[]"]`).forEach(input => {
+                input.disabled = true;
+            });
+        }
+        
+        // 隐藏提交按钮，显示重置按钮
+        const submitButton = document.getElementById(`submit-btn-${exerciseId}`);
+        if (submitButton) {
+            submitButton.style.display = 'none';
+        }
+        
+        const resetButton = document.getElementById(`reset-btn-${exerciseId}`);
         if (resetButton) {
             resetButton.style.display = 'inline-block';
+        } else {
+            // 如果重置按钮不存在，创建一个
+            const form = document.querySelector(`#exercise-form-${exerciseId}`);
+            if (form) {
+                const newResetButton = document.createElement('button');
+                newResetButton.id = `reset-btn-${exerciseId}`;
+                newResetButton.className = 'btn btn-secondary ml-2';
+                newResetButton.textContent = '重新作答';
+                newResetButton.type = 'button';
+                newResetButton.onclick = function() { resetExercise(exerciseId, exerciseType); };
+                form.appendChild(newResetButton);
+            }
         }
-    });
-});
+    } catch (error) {
+        console.error('提交答案时出错:', error);
+        alert('提交答案时出错: ' + error.message);
+    } finally {
+        // 隐藏加载指示器
+        if (loadingIndicator) {
+            loadingIndicator.style.display = 'none';
+        }
+    }
+}
+
+// 重置练习题的函数
+function resetExercise(exerciseId, exerciseType) {
+    // 清除选择
+    if (exerciseType === 'single') {
+        document.querySelectorAll(`input[name="exercise_${exerciseId}"]`).forEach(input => {
+            input.checked = false;
+            input.disabled = false;
+        });
+    } else if (exerciseType === 'multiple') {
+        document.querySelectorAll(`input[name="exercise_${exerciseId}[]"]`).forEach(input => {
+            input.checked = false;
+            input.disabled = false;
+        });
+    }
+    
+    // 清除结果显示
+    const resultElement = document.getElementById(`exercise-result-${exerciseId}`);
+    if (resultElement) {
+        resultElement.innerHTML = '';
+    }
+    
+    // 显示提交按钮，隐藏重置按钮
+    const submitButton = document.getElementById(`submit-btn-${exerciseId}`);
+    if (submitButton) {
+        submitButton.style.display = 'inline-block';
+    }
+    
+    const resetButton = document.getElementById(`reset-btn-${exerciseId}`);
+    if (resetButton) {
+        resetButton.style.display = 'none';
+    }
+}
 
 // 平滑滚动到锚点
 document.querySelectorAll('a[href^="#"]').forEach(anchor => {

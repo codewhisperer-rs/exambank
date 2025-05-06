@@ -6,6 +6,17 @@
 <div class="hero-section text-center mb-5">
     <h1 class="display-4">计算机考研题库</h1>
     <p class="lead">提供全面的计算机考研复习资料和练习题</p>
+    
+    {% if user.is_authenticated %}
+    <div class="mt-4">
+        <a href="{% url 'courses:mistake_collection' %}" class="btn btn-primary me-2">
+            <i class="bi bi-journal-x"></i> 我的错题集
+        </a>
+        <a href="{% url 'courses:ai_recommend' %}" class="btn btn-success">
+            <i class="bi bi-magic"></i> AI智能推荐
+        </a>
+    </div>
+    {% endif %}
 </div>
 
 <div class="row">

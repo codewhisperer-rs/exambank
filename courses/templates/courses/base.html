@@ -126,6 +126,16 @@
                             <i class="bi bi-journal-x"></i> 我的错题集
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'courses:extract_knowledge' %}">
+                            <i class="bi bi-lightbulb"></i> 知识点提取
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'courses:ai_recommend' %}">
+                            <i class="bi bi-magic"></i> AI智能推荐
+                        </a>
+                    </li>
                     {% endif %}
                 </ul>
                 <ul class="navbar-nav ms-auto">

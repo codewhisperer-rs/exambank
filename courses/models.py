@@ -103,25 +103,21 @@ class ExerciseKnowledge(models.Model):
     def __str__(self):
         return f"{self.exercise} - {self.knowledge}"
 
-class UserExerciseAttempt(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='exercise_attempts', verbose_name='用户')
-    exercise = models.ForeignKey(Exercise, on_delete=models.CASCADE, related_name='attempts', verbose_name='习题')
+class ExerciseAttempt(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='exercise_attempts_new', verbose_name='用户')
+    exercise = models.ForeignKey(Exercise, on_delete=models.CASCADE, related_name='attempts_new', verbose_name='习题')
     is_correct = models.BooleanField(default=False, verbose_name='是否正确')
-    user_answer = models.TextField(blank=True, null=True, verbose_name='用户答案') # 允许为空
-    attempted_at = models.DateTimeField(auto_now_add=True, verbose_name='尝试时间') # 自动记录创建时间
+    user_answer = models.TextField(blank=True, null=True, verbose_name='用户答案')
+    attempt_time = models.DateTimeField(auto_now_add=True, verbose_name='尝试时间')
 
     class Meta:
-        verbose_name = '用户答题记录'
+        verbose_name = '用户答题记录(新)'
         verbose_name_plural = verbose_name
-        ordering = ['-attempted_at'] # 通常按最近尝试排序
+        ordering = ['-attempt_time']
 
     def __str__(self):
         status = "正确" if self.is_correct else "错误"
-        # 确保 exercise 对象存在，避免在 admin 或 shell 中显示时出错
-        exercise_str = str(self.exercise) if self.exercise else "未知习题"
-        # 确保 user 对象存在
-        user_str = self.user.username if self.user else "未知用户"
-        return f"{user_str} 尝试 {exercise_str} - {status} ({self.attempted_at.strftime('%Y-%m-%d %H:%M')})"
+        return f"{self.user.username} - {self.exercise} - {status} ({self.attempt_time.strftime('%Y-%m-%d %H:%M')})"
 
 class UserMistakeCollection(models.Model):
     """用户错题集"""
@@ -131,6 +127,7 @@ class UserMistakeCollection(models.Model):
     last_attempt_at = models.DateTimeField(null=True, blank=True, verbose_name='最后一次尝试时间')
     attempt_count = models.IntegerField(default=0, verbose_name='尝试次数')
     correct_count = models.IntegerField(default=0, verbose_name='正确次数')
+    last_wrong_answer = models.CharField(max_length=200, blank=True, null=True, verbose_name='最近一次错误答案')
     notes = models.TextField(blank=True, verbose_name='笔记')
     
     class Meta:

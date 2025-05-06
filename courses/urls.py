@@ -17,6 +17,16 @@ urlpatterns = [
     path('add_mistake_note/', views.add_mistake_note, name='add_mistake_note'),
     path('recommended_exercises/', views.recommend_exercises, name='recommended_exercises'),
     
+    # AI推荐相关的URL
+    path('ai_recommend/', views.ai_recommend_exercises, name='ai_recommend'),
+    path('ai_recommend/get_recommendations/', views.get_ai_exercise_recommendations, name='get_ai_exercise_recommendations'),
+    
+    # 知识点提取与习题生成
+    path('extract_knowledge/', views.extract_mistake_knowledge_points, name='extract_knowledge'),
+    
     # API端点 - 修改路径与前端一致
     path('api/exercise-detail/<int:exercise_id>/', views.get_exercise_detail, name='exercise_detail_api'),
+    
+    # 新增 - 习题提交API端点
+    path('api/submit-exercise-attempt/', views.submit_exercise_attempt, name='submit_exercise_attempt_api'),
 ] 

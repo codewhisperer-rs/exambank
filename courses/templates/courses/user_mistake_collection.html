@@ -77,7 +77,11 @@
                 </div>
             {% else %}
                 <div class="alert alert-info">
-                    您的错题集还是空的。开始做题吧，错误的题目会自动添加到这里！
+                    <p>您的错题集还是空的。开始做题吧，错误的题目会自动添加到这里！</p>
+                    <p class="mt-2">您也可以尝试使用AI智能推荐，获取适合您学习的习题：</p>
+                    <a href="{% url 'courses:ai_recommend' %}" class="btn btn-success">
+                        <i class="bi bi-magic"></i> 获取AI推荐习题
+                    </a>
                 </div>
             {% endif %}
         </div>
@@ -110,7 +114,14 @@
                 </div>
                 <div class="card-body">
                     <p class="card-text">根据您的错题情况，系统可以为您推荐相关练习题。</p>
-                    <a href="{% url 'courses:recommended_exercises' %}" class="btn btn-primary">获取推荐习题</a>
+                    <div class="d-grid gap-2">
+                        <a href="{% url 'courses:extract_knowledge' %}" class="btn btn-success mb-2">
+                            <i class="bi bi-lightbulb"></i> 提取知识点并生成题目
+                        </a>
+                        <a href="{% url 'courses:ai_recommend' %}" class="btn btn-primary">
+                            <i class="bi bi-magic"></i> 获取AI推荐习题
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>
@@ -126,12 +137,31 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <div class="exercise-content"></div>
-                <div class="answer-section mt-3">
-                    <h6>正确答案：</h6>
-                    <div class="correct-answer"></div>
+                <div class="exercise-content mb-3"></div>
+                
+                <div class="options-section mt-3">
+                    <h6>所有选项：</h6>
+                    <div class="options-container"></div>
                 </div>
-                <div class="explanation-section mt-3">
+                
+                <div class="answer-comparison mt-4">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="correct-answer-section">
+                                <h6><i class="bi bi-check-circle-fill text-success"></i> 正确答案：</h6>
+                                <div class="correct-answer badge bg-success"></div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="user-answer-section">
+                                <h6><i class="bi bi-x-circle-fill text-danger"></i> 您的答案：</h6>
+                                <div class="user-answer badge bg-danger"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="explanation-section mt-4">
                     <h6>解析：</h6>
                     <div class="explanation"></div>
                 </div>
@@ -180,9 +210,64 @@
                 url: "{% url 'courses:exercise_detail_api' 0 %}".replace('0', exerciseId),  // 使用Django URL模板生成
                 method: 'GET',
                 success: function(data) {
+                    // 显示题目内容
                     $('#mistakeDetailModal .exercise-content').html(data.content);
+                    
+                    // 处理选项显示
+                    if (data.options && Object.keys(data.options).length > 0) {
+                        let correctAnswers = data.answer.split(',');
+                        let userAnswers = data.user_answer ? data.user_answer.split(',') : [];
+                        
+                        // 创建选项HTML
+                        let optionsHtml = '';
+                        for (const [key, value] of Object.entries(data.options)) {
+                            // 确定选项类
+                            let optionClass = '';
+                            let optionIcon = '';
+                            
+                            if (correctAnswers.includes(key)) {
+                                if (userAnswers.includes(key)) {
+                                    // 正确答案且用户选择了
+                                    optionClass = 'bg-success text-white';
+                                    optionIcon = '<i class="bi bi-check-circle-fill"></i> ';
+                                } else {
+                                    // 正确答案但用户未选择
+                                    optionClass = 'border-success border-2';
+                                    optionIcon = '<i class="bi bi-check-circle text-success"></i> ';
+                                }
+                            } else if (userAnswers.includes(key)) {
+                                // 错误答案且用户选择了
+                                optionClass = 'bg-danger text-white';
+                                optionIcon = '<i class="bi bi-x-circle-fill"></i> ';
+                            }
+                            
+                            optionsHtml += `
+                                <div class="option-item mb-2 p-2 rounded ${optionClass}">
+                                    ${optionIcon}<strong>${key}.</strong> ${value}
+                                </div>`;
+                        }
+                        
+                        // 更新选项容器
+                        $('#mistakeDetailModal .options-container').html(optionsHtml);
+                        $('#mistakeDetailModal .options-section').show();
+                    } else {
+                        $('#mistakeDetailModal .options-section').hide();
+                    }
+                    
+                    // 显示用户答案和正确答案
                     $('#mistakeDetailModal .correct-answer').text(data.answer);
+                    
+                    if (data.user_answer) {
+                        $('#mistakeDetailModal .user-answer').text(data.user_answer);
+                        $('#mistakeDetailModal .user-answer-section').show();
+                    } else {
+                        $('#mistakeDetailModal .user-answer-section').hide();
+                    }
+                    
+                    // 显示解析
                     $('#mistakeDetailModal .explanation').html(data.explanation);
+                    
+                    // 显示模态框
                     $('#mistakeDetailModal').modal('show');
                 },
                 error: function() {
