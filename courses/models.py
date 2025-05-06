@@ -198,3 +198,27 @@ class AIExerciseAttempt(models.Model):
     def __str__(self):
         status = "正确" if self.is_correct else "错误"
         return f"{self.user.username} - AI题 - {status} ({self.attempt_time.strftime('%Y-%m-%d %H:%M')})"
+
+# 新增模型：习题反馈记录
+class ExerciseFeedback(models.Model):
+    """用户对习题的反馈记录"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='exercise_feedbacks', verbose_name='用户', null=True, blank=True)
+    exercise = models.ForeignKey(Exercise, on_delete=models.CASCADE, related_name='feedbacks', verbose_name='习题')
+    book_title = models.CharField(max_length=100, verbose_name='书籍名称')
+    chapter_number = models.CharField(max_length=10, verbose_name='章节号')
+    section_number = models.CharField(max_length=10, verbose_name='小节号')
+    section_title = models.CharField(max_length=200, verbose_name='小节标题')
+    problem_types = models.JSONField(verbose_name='问题类型', help_text='可包含题干有误、选项有误、答案有误等')
+    details = models.TextField(blank=True, verbose_name='详细描述')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    status = models.CharField(max_length=20, default='pending', verbose_name='处理状态', 
+                             choices=[('pending', '待处理'), ('processing', '处理中'), ('resolved', '已解决'), ('ignored', '已忽略')])
+    admin_notes = models.TextField(blank=True, verbose_name='管理员备注')
+    
+    class Meta:
+        verbose_name = '习题反馈'
+        verbose_name_plural = verbose_name
+        ordering = ['-created_at']
+        
+    def __str__(self):
+        return f"习题反馈: {self.book_title} 第{self.chapter_number}章 {self.section_number} - {self.created_at.strftime('%Y-%m-%d')}"

@@ -9,7 +9,7 @@ from django.db.models import Count, Q, F, Sum, Case, When, Value, IntegerField
 from django.utils import timezone
 import markdown
 # 导入所有需要的模型
-from .models import Book, Chapter, Section, Exercise, Knowledge, UserMistakeCollection, ExerciseKnowledge, ExerciseAttempt, AIGeneratedExercise, AIExerciseAttempt
+from .models import Book, Chapter, Section, Exercise, Knowledge, UserMistakeCollection, ExerciseKnowledge, ExerciseAttempt, AIGeneratedExercise, AIExerciseAttempt, ExerciseFeedback
 import logging
 import time
 from django.core.paginator import Paginator
@@ -1806,3 +1806,48 @@ def clear_ai_exercises_view(request):
         return redirect('courses:my_ai_exercises')
     
     return redirect('courses:my_ai_exercises')
+
+@csrf_exempt  # 临时添加CSRF豁免
+@require_http_methods(["POST"])
+def submit_exercise_feedback(request):
+    """处理习题反馈提交"""
+    try:
+        data = json.loads(request.body)
+        exercise_id = data.get('exercise_id')
+        
+        if not exercise_id:
+            return JsonResponse({'status': 'error', 'error': '缺少习题ID'})
+        
+        # 获取习题对象
+        try:
+            exercise = Exercise.objects.get(id=exercise_id)
+        except Exercise.DoesNotExist:
+            return JsonResponse({'status': 'error', 'error': '习题不存在'})
+        
+        # 获取问题类型列表
+        problem_types = data.get('problem_types', [])
+        if not problem_types:
+            return JsonResponse({'status': 'error', 'error': '请至少选择一种问题类型'})
+        
+        # 创建反馈记录
+        feedback = ExerciseFeedback.objects.create(
+            user=request.user if request.user.is_authenticated else None,
+            exercise=exercise,
+            book_title=data.get('book_title', ''),
+            chapter_number=data.get('chapter_number', ''),
+            section_number=data.get('section_number', ''),
+            section_title=data.get('section_title', ''),
+            problem_types=problem_types,
+            details=data.get('details', '')
+        )
+        
+        # 记录日志
+        logger.info(f"用户提交了习题反馈: ID={feedback.id}, 习题ID={exercise_id}, 问题类型={problem_types}")
+        
+        return JsonResponse({'status': 'success', 'message': '反馈提交成功'})
+    
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'error', 'error': '无效的JSON数据'})
+    except Exception as e:
+        logger.error(f"处理习题反馈时出错: {str(e)}")
+        return JsonResponse({'status': 'error', 'error': f'服务器错误: {str(e)}'})

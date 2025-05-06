@@ -32,10 +32,16 @@
                     {% for exercise in group.exercises %}
                     <div class="exercise-card card mb-4">
                         <div class="card-body">
-                            <h5 class="card-title">
-                                题 {{ exercise.number }}. 
-                                <span class="exercise-content">{{ exercise.content|safe }}</span>
-                            </h5>
+                            <div class="d-flex justify-content-between">
+                                <h5 class="card-title">
+                                    题 {{ exercise.number }}. 
+                                    <span class="exercise-content">{{ exercise.content|safe }}</span>
+                                </h5>
+                                <!-- 添加反馈按钮 -->
+                                <button class="btn btn-sm btn-outline-secondary feedback-btn" data-bs-toggle="modal" data-bs-target="#feedbackModal" data-exercise-id="{{ exercise.id }}" data-exercise-number="{{ exercise.number }}">
+                                    <i class="bi bi-flag"></i> 反馈
+                                </button>
+                            </div>
                         
                             {% if exercise.type == 'single' or exercise.type == 'multiple' %}
                             <div id="exercise-form-{{ exercise.id }}">
@@ -131,6 +137,61 @@
                         <i class="bi bi-book"></i> 返回学习知识点
                     </a>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 添加反馈模态框 -->
+<div class="modal fade" id="feedbackModal" tabindex="-1" aria-labelledby="feedbackModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="feedbackModalLabel">习题反馈</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="exercise-feedback-form">
+                    <input type="hidden" id="feedback-exercise-id" name="exercise_id" value="">
+                    <input type="hidden" id="book-title" name="book_title" value="{{ section.chapter.book.title }}">
+                    <input type="hidden" id="chapter-number" name="chapter_number" value="{{ section.chapter.number }}">
+                    <input type="hidden" id="section-number" name="section_number" value="{{ section.number }}">
+                    <input type="hidden" id="section-title" name="section_title" value="{{ section.title }}">
+                    <p>请选择您发现的问题类型（可多选）：</p>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" value="题干有误" id="problem-content" name="problem_types[]">
+                        <label class="form-check-label" for="problem-content">
+                            题干有误
+                        </label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" value="选项有误" id="problem-options" name="problem_types[]">
+                        <label class="form-check-label" for="problem-options">
+                            选项有误
+                        </label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" value="答案有误" id="problem-answer" name="problem_types[]">
+                        <label class="form-check-label" for="problem-answer">
+                            答案有误
+                        </label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" value="解析有误" id="problem-explanation" name="problem_types[]">
+                        <label class="form-check-label" for="problem-explanation">
+                            解析有误
+                        </label>
+                    </div>
+                    <div class="mb-3 mt-3">
+                        <label for="feedback-details" class="form-label">详细说明（可选）：</label>
+                        <textarea class="form-control" id="feedback-details" name="details" rows="3" placeholder="请描述您发现的具体问题..."></textarea>
+                    </div>
+                </form>
+                <div id="feedback-result" class="mt-3"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="submit-feedback-btn">提交反馈</button>
             </div>
         </div>
     </div>
@@ -359,6 +420,105 @@ window.addEventListener('beforeunload', function() {
             socket.close();
         }
     }
+});
+
+// 反馈功能的处理
+document.querySelectorAll('.feedback-btn').forEach(button => {
+    button.addEventListener('click', function() {
+        // 获取习题ID并设置到模态框的隐藏表单字段中
+        const exerciseId = this.dataset.exerciseId;
+        const exerciseNumber = this.dataset.exerciseNumber;
+        document.getElementById('feedback-exercise-id').value = exerciseId;
+        
+        // 设置模态框标题
+        document.getElementById('feedbackModalLabel').textContent = `习题${exerciseNumber}反馈`;
+        
+        // 清空之前的选择和结果
+        document.getElementById('problem-content').checked = false;
+        document.getElementById('problem-options').checked = false;
+        document.getElementById('problem-answer').checked = false;
+        document.getElementById('problem-explanation').checked = false;
+        document.getElementById('feedback-details').value = '';
+        document.getElementById('feedback-result').innerHTML = '';
+    });
+});
+
+// 处理反馈提交
+document.getElementById('submit-feedback-btn').addEventListener('click', function() {
+    // 获取所有选中的问题类型
+    const checkedProblems = document.querySelectorAll('#exercise-feedback-form input[name="problem_types[]"]:checked');
+    
+    if (checkedProblems.length === 0) {
+        alert('请至少选择一种问题类型');
+        return;
+    }
+    
+    // 收集表单数据
+    const formData = new FormData(document.getElementById('exercise-feedback-form'));
+    
+    // 创建一个对象来保存表单数据
+    const feedbackData = {
+        exercise_id: formData.get('exercise_id'),
+        book_title: formData.get('book_title'),
+        chapter_number: formData.get('chapter_number'),
+        section_number: formData.get('section_number'),
+        section_title: formData.get('section_title'),
+        problem_types: Array.from(checkedProblems).map(checkbox => checkbox.value),
+        details: formData.get('details') || ''
+    };
+    
+    // 显示加载提示
+    const resultDiv = document.getElementById('feedback-result');
+    resultDiv.innerHTML = `
+        <div class="text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">正在提交...</span>
+            </div>
+            <p class="mt-2">正在提交反馈...</p>
+        </div>
+    `;
+    
+    // 发送AJAX请求
+    fetch('/submit-exercise-feedback/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        },
+        body: JSON.stringify(feedbackData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            resultDiv.innerHTML = `
+                <div class="alert alert-success">
+                    反馈提交成功！谢谢您的反馈。
+                </div>
+            `;
+            
+            // 3秒后自动关闭模态框
+            setTimeout(() => {
+                const modal = bootstrap.Modal.getInstance(document.getElementById('feedbackModal'));
+                if (modal) {
+                    modal.hide();
+                }
+            }, 3000);
+        } else {
+            resultDiv.innerHTML = `
+                <div class="alert alert-danger">
+                    提交失败：${data.error || '未知错误'}
+                </div>
+            `;
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        resultDiv.innerHTML = `
+            <div class="alert alert-danger">
+                提交时发生错误，请稍后再试。
+            </div>
+        `;
+    });
 });
 </script>
 {% endblock %}

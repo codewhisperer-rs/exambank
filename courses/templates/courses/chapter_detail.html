@@ -7,7 +7,7 @@
 <nav aria-label="breadcrumb">
     <ol class="breadcrumb">
         <li class="breadcrumb-item"><a href="{% url 'courses:index' %}">首页</a></li>
-        <li class="breadcrumb-item"><a href="{% url 'courses:book_detail' chapter.book.id %}" target="_blank">{{ chapter.book.title }}</a></li>
+        <li class="breadcrumb-item"><a href="{% url 'courses:book_detail' chapter.book.id %}">{{ chapter.book.title }}</a></li>
         <li class="breadcrumb-item active">{{ chapter.title }}</li>
     </ol>
 </nav>
@@ -19,7 +19,7 @@
         <div class="list-group">
             {% for section in sections %}
             {% if section.title != "章节介绍" and section.number != chapter.number|stringformat:".1f"|add:".0" %}
-            <a href="{% url 'courses:section_detail' section.id %}" class="list-group-item list-group-item-action" target="_blank">
+            <a href="{% url 'courses:section_detail' section.id %}" class="list-group-item list-group-item-action">
                 <div class="d-flex w-100 justify-content-between">
                     <h5 class="mb-1">{{ section.number }} {{ section.title }}</h5>
                     <small class="text-muted">

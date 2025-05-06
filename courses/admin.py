@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Book, Chapter, Section, Knowledge, Exercise, ExerciseKnowledge, ExerciseAttempt, UserMistakeCollection, AIGeneratedExercise, AIExerciseAttempt
+from .models import Book, Chapter, Section, Knowledge, Exercise, ExerciseKnowledge, ExerciseAttempt, UserMistakeCollection, AIGeneratedExercise, AIExerciseAttempt, ExerciseFeedback
 
 @admin.register(Book)
 class BookAdmin(admin.ModelAdmin):
@@ -72,3 +72,27 @@ class AIExerciseAttemptAdmin(admin.ModelAdmin):
     search_fields = ('user__username', 'exercise__content')
     date_hierarchy = 'attempt_time'
     readonly_fields = ('attempt_time',)
+
+# 注册习题反馈模型
+@admin.register(ExerciseFeedback)
+class ExerciseFeedbackAdmin(admin.ModelAdmin):
+    list_display = ('exercise', 'book_title', 'chapter_number', 'section_number', 'user', 'status', 'created_at')
+    list_filter = ('status', 'created_at', 'book_title')
+    search_fields = ('book_title', 'section_title', 'details', 'problem_types')
+    date_hierarchy = 'created_at'
+    readonly_fields = ('created_at',)
+    list_editable = ('status',)
+    fieldsets = (
+        ('习题信息', {
+            'fields': ('exercise', 'book_title', 'chapter_number', 'section_number', 'section_title')
+        }),
+        ('反馈内容', {
+            'fields': ('problem_types', 'details')
+        }),
+        ('处理状态', {
+            'fields': ('status', 'admin_notes')
+        }),
+        ('其他信息', {
+            'fields': ('user', 'created_at')
+        }),
+    )
