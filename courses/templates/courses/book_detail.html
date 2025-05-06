@@ -17,7 +17,7 @@
         
         <div class="list-group">
             {% for chapter in chapters %}
-            <a href="{% url 'courses:chapter_detail' chapter.id %}" class="list-group-item list-group-item-action">
+            <a href="{% url 'courses:chapter_detail' chapter.id %}" class="list-group-item list-group-item-action" target="_blank">
                 <div style="text-align: right;">
                 <small class="text-muted">{{ chapter.filtered_sections_count }} 个小节</small>
                 </div>

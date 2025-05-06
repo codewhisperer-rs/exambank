@@ -9,10 +9,10 @@
     
     {% if user.is_authenticated %}
     <div class="mt-4">
-        <a href="{% url 'courses:mistake_collection' %}" class="btn btn-primary me-2">
+        <a href="{% url 'courses:mistake_collection' %}" class="btn btn-primary me-2" target="_blank">
             <i class="bi bi-journal-x"></i> 我的错题集
         </a>
-        <a href="{% url 'courses:ai_recommend' %}" class="btn btn-success">
+        <a href="{% url 'courses:ai_recommend' %}" class="btn btn-success" target="_blank">
             <i class="bi bi-magic"></i> AI智能推荐
         </a>
     </div>
@@ -29,7 +29,7 @@
             <div class="card-body">
                 <h5 class="card-title">{{ book.title }}</h5>
                 <p class="card-text">{{ book.description }}</p>
-                <a href="{% url 'courses:book_detail' book.id %}" class="btn btn-primary">开始学习</a>
+                <a href="{% url 'courses:book_detail' book.id %}" class="btn btn-primary" target="_blank">开始学习</a>
             </div>
         </div>
     </div>

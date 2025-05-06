@@ -139,6 +139,9 @@
 
 {% block extra_js %}
 <script>
+// 存储每个习题的WebSocket连接
+const exerciseSockets = {};
+
 document.querySelectorAll('.show-answer').forEach(button => {
     button.addEventListener('click', function() {
         const targetId = this.dataset.target;
@@ -179,236 +182,181 @@ document.querySelectorAll('.check-answer').forEach(button => {
                 alert('请至少选择一个选项');
                 return;
             }
-            userAnswer = Array.from(selectedOptions).map(option => option.value).join(',');
+            userAnswer = Array.from(selectedOptions).map(option => option.value);
         } else {
             // 其他题型处理逻辑
             alert('暂不支持此题型');
             return;
         }
         
-        // 向服务器提交答题记录
-        submitExerciseAttempt(exerciseId, exerciseType, userAnswer);
+        // 使用WebSocket提交答题记录
+        submitExerciseAttemptViaWebSocket(exerciseId, userAnswer);
     });
 });
 
-// 获取CSRF Token的辅助函数
-function getCookie(name) {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== '') {
-        const cookies = document.cookie.split(';');
-        for (let i = 0; i < cookies.length; i++) {
-            const cookie = cookies[i].trim();
-            if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                break;
-            }
-        }
-    }
-    return cookieValue;
-}
-
-// 提交答案的函数
-async function submitExerciseAttempt(exerciseId, exerciseType, userAnswer) {
-    // 显示加载状态
+// 使用WebSocket提交答题记录
+function submitExerciseAttemptViaWebSocket(exerciseId, userAnswer) {
+    // 显示加载指示器
     const loadingIndicator = document.getElementById(`loading-indicator-${exerciseId}`);
     if (loadingIndicator) {
         loadingIndicator.style.display = 'block';
     }
     
-    try {
-        // 准备请求数据
-        const csrftoken = getCookie('csrftoken');
-        const response = await fetch('/api/submit-exercise-attempt/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': csrftoken
-            },
-            body: JSON.stringify({
-                exercise_id: exerciseId,
-                user_answer: userAnswer
-            })
-        });
+    // 禁用提交按钮
+    const submitBtn = document.getElementById(`submit-btn-${exerciseId}`);
+    if (submitBtn) {
+        submitBtn.disabled = true;
+    }
+    
+    // 获取或创建WebSocket连接
+    let socket = exerciseSockets[exerciseId];
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+        // 确定WebSocket协议
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = window.location.host;
+        const wsUrl = `${protocol}//${host}/ws/exercise/${exerciseId}/`;
         
-        // 处理响应
-        if (response.status === 401) {
-            // 用户未登录
-            alert('请先登录后再提交答案');
-            window.location.href = '/accounts/login/?next=' + window.location.pathname;
-            return;
-        }
+        socket = new WebSocket(wsUrl);
+        exerciseSockets[exerciseId] = socket;
         
-        if (!response.ok) {
-            throw new Error(`提交失败: ${response.status} ${response.statusText}`);
-        }
+        socket.onopen = function(e) {
+            console.log(`WebSocket连接已建立: ${exerciseId}`);
+            
+            // 发送答案提交请求
+            socket.send(JSON.stringify({
+                'action': 'submit_answer',
+                'exercise_id': exerciseId,
+                'user_answer': userAnswer
+            }));
+        };
         
-        const data = await response.json();
+        socket.onmessage = function(e) {
+            const data = JSON.parse(e.data);
+            processExerciseResponse(exerciseId, data);
+        };
         
-        // 更新界面显示
-        const resultElement = document.getElementById(`exercise-result-${exerciseId}`);
-        if (resultElement) {
+        socket.onclose = function(e) {
+            console.log(`WebSocket连接已关闭: ${exerciseId}`);
+            delete exerciseSockets[exerciseId];
+        };
+        
+        socket.onerror = function(e) {
+            console.error(`WebSocket错误: ${exerciseId}`, e);
+            
+            // 显示错误信息
+            const resultDiv = document.getElementById(`exercise-result-${exerciseId}`);
+            if (resultDiv) {
+                resultDiv.innerHTML = `
+                    <div class="alert alert-danger mt-3">
+                        连接出错，请稍后再试
+                    </div>
+                `;
+            }
+            
+            // 隐藏加载指示器
+            if (loadingIndicator) {
+                loadingIndicator.style.display = 'none';
+            }
+            
+            // 重新启用提交按钮
+            if (submitBtn) {
+                submitBtn.disabled = false;
+            }
+        };
+    } else {
+        // 如果WebSocket已连接，直接发送
+        socket.send(JSON.stringify({
+            'action': 'submit_answer',
+            'exercise_id': exerciseId,
+            'user_answer': userAnswer
+        }));
+    }
+}
+
+// 处理习题响应
+function processExerciseResponse(exerciseId, data) {
+    // 隐藏加载指示器
+    const loadingIndicator = document.getElementById(`loading-indicator-${exerciseId}`);
+    if (loadingIndicator) {
+        loadingIndicator.style.display = 'none';
+    }
+    
+    // 重新启用提交按钮
+    const submitBtn = document.getElementById(`submit-btn-${exerciseId}`);
+    if (submitBtn) {
+        submitBtn.disabled = false;
+    }
+    
+    // 显示结果
+    const resultDiv = document.getElementById(`exercise-result-${exerciseId}`);
+    if (resultDiv) {
+        if (data.status === 'success') {
+            // 正确答案的处理
+            const resultHtml = `
+                <div class="alert ${data.is_correct ? 'alert-success' : 'alert-danger'} mt-3">
+                    <h5>${data.is_correct ? '回答正确！' : '回答错误！'}</h5>
+                    <p><strong>正确答案:</strong> ${data.correct_answer}</p>
+                    ${data.explanation ? `<div class="explanation-content markdown-body mt-2"><h6>解析:</h6>${data.explanation}</div>` : ''}
+                </div>
+            `;
+            resultDiv.innerHTML = resultHtml;
+            
+            // 如果答案正确，绿色高亮正确选项
             if (data.is_correct) {
-                resultElement.innerHTML = '<div class="alert alert-success mt-3">回答正确！</div>';
+                highlightCorrectOptions(exerciseId, data.correct_answer);
             } else {
-                let resultHtml = '<div class="alert alert-danger mt-3">回答错误。';
-                if (data.correct_answer) {
-                    resultHtml += `<br>正确答案是: ${data.correct_answer}`;
-                }
-                if (data.explanation) {
-                    resultHtml += `<br>解释: ${data.explanation}`;
-                }
-                resultHtml += '</div>';
-                resultElement.innerHTML = resultHtml;
+                // 如果答案错误，红色高亮错误选项，绿色高亮正确选项
+                highlightOptions(exerciseId, data.correct_answer);
             }
-        }
-        
-        // 禁用选项，防止重复提交
-        if (exerciseType === 'single') {
-            document.querySelectorAll(`input[name="exercise_${exerciseId}"]`).forEach(input => {
-                input.disabled = true;
-            });
-        } else if (exerciseType === 'multiple') {
-            document.querySelectorAll(`input[name="exercise_${exerciseId}[]"]`).forEach(input => {
-                input.disabled = true;
-            });
-        }
-        
-        // 隐藏提交按钮，显示重置按钮
-        const submitButton = document.getElementById(`submit-btn-${exerciseId}`);
-        if (submitButton) {
-            submitButton.style.display = 'none';
-        }
-        
-        const resetButton = document.getElementById(`reset-btn-${exerciseId}`);
-        if (resetButton) {
-            resetButton.style.display = 'inline-block';
         } else {
-            // 如果重置按钮不存在，创建一个
-            const form = document.querySelector(`#exercise-form-${exerciseId}`);
-            if (form) {
-                const newResetButton = document.createElement('button');
-                newResetButton.id = `reset-btn-${exerciseId}`;
-                newResetButton.className = 'btn btn-secondary ml-2';
-                newResetButton.textContent = '重新作答';
-                newResetButton.type = 'button';
-                newResetButton.onclick = function() { resetExercise(exerciseId, exerciseType); };
-                form.appendChild(newResetButton);
-            }
-        }
-    } catch (error) {
-        console.error('提交答案时出错:', error);
-        alert('提交答案时出错: ' + error.message);
-    } finally {
-        // 隐藏加载指示器
-        if (loadingIndicator) {
-            loadingIndicator.style.display = 'none';
+            // 错误处理
+            resultDiv.innerHTML = `
+                <div class="alert alert-danger mt-3">
+                    ${data.error || '提交答案时出错，请稍后再试'}
+                </div>
+            `;
         }
     }
 }
 
-// 重置练习题的函数
-function resetExercise(exerciseId, exerciseType) {
-    // 清除选择
-    if (exerciseType === 'single') {
-        document.querySelectorAll(`input[name="exercise_${exerciseId}"]`).forEach(input => {
-            input.checked = false;
-            input.disabled = false;
-        });
-    } else if (exerciseType === 'multiple') {
-        document.querySelectorAll(`input[name="exercise_${exerciseId}[]"]`).forEach(input => {
-            input.checked = false;
-            input.disabled = false;
-        });
-    }
+// 高亮正确选项
+function highlightCorrectOptions(exerciseId, correctAnswer) {
+    const options = document.querySelectorAll(`input[name^="exercise_${exerciseId}"]`);
+    const correctAnswers = correctAnswer.split(',');
     
-    // 清除结果显示
-    const resultElement = document.getElementById(`exercise-result-${exerciseId}`);
-    if (resultElement) {
-        resultElement.innerHTML = '';
-    }
-    
-    // 显示提交按钮，隐藏重置按钮
-    const submitButton = document.getElementById(`submit-btn-${exerciseId}`);
-    if (submitButton) {
-        submitButton.style.display = 'inline-block';
-    }
-    
-    const resetButton = document.getElementById(`reset-btn-${exerciseId}`);
-    if (resetButton) {
-        resetButton.style.display = 'none';
-    }
-}
-
-// 平滑滚动到锚点
-document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-    anchor.addEventListener('click', function (e) {
-        e.preventDefault();
-        
-        const targetId = this.getAttribute('href');
-        const targetElement = document.querySelector(targetId);
-        
-        if (targetElement) {
-            window.scrollTo({
-                top: targetElement.offsetTop - 70, // 减去导航栏的高度
-                behavior: 'smooth'
-            });
+    options.forEach(option => {
+        const optionValue = option.value;
+        if (correctAnswers.includes(optionValue)) {
+            option.parentElement.classList.add('border-success', 'bg-success', 'bg-opacity-10');
         }
     });
-});
+}
 
-// 处理从URL参数定位到特定练习题
-document.addEventListener('DOMContentLoaded', function() {
-    // 获取URL参数
-    const urlParams = new URLSearchParams(window.location.search);
-    const scrollToExercise = urlParams.get('scroll_to_exercise');
+// 高亮选项（正确和错误）
+function highlightOptions(exerciseId, correctAnswer) {
+    const options = document.querySelectorAll(`input[name^="exercise_${exerciseId}"]`);
+    const correctAnswers = correctAnswer.split(',');
     
-    if (scrollToExercise) {
-        // 查找包含这个练习ID的卡片
-        // 先尝试找到表单元素
-        const exerciseForm = document.getElementById(`exercise-form-${scrollToExercise}`);
-        if (exerciseForm) {
-            // 找到对应的卡片元素（向上查找最近的.exercise-card）
-            const exerciseCard = exerciseForm.closest('.exercise-card');
-            if (exerciseCard) {
-                // 滚动到题目位置
-                setTimeout(() => {
-                    exerciseCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    
-                    // 添加高亮效果
-                    exerciseCard.classList.add('border-primary');
-                    exerciseCard.style.boxShadow = '0 0 10px rgba(0, 123, 255, 0.5)';
-                    
-                    // 5秒后移除高亮
-                    setTimeout(() => {
-                        exerciseCard.classList.remove('border-primary');
-                        exerciseCard.style.boxShadow = '';
-                    }, 5000);
-                }, 300); // 延迟一点执行，确保页面已完全加载
-            }
-        } else {
-            // 如果找不到表单，尝试直接通过内容查找
-            const allExerciseCards = document.querySelectorAll('.exercise-card');
-            for (const card of allExerciseCards) {
-                // 查找卡片内可能包含题目ID的元素
-                const submitButton = card.querySelector(`[data-exercise-id="${scrollToExercise}"]`);
-                if (submitButton) {
-                    // 滚动到题目位置
-                    setTimeout(() => {
-                        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        
-                        // 添加高亮效果
-                        card.classList.add('border-primary');
-                        card.style.boxShadow = '0 0 10px rgba(0, 123, 255, 0.5)';
-                        
-                        // 5秒后移除高亮
-                        setTimeout(() => {
-                            card.classList.remove('border-primary');
-                            card.style.boxShadow = '';
-                        }, 5000);
-                    }, 300);
-                    break;
-                }
-            }
+    options.forEach(option => {
+        const optionValue = option.value;
+        const isChecked = option.checked;
+        
+        if (correctAnswers.includes(optionValue)) {
+            // 正确选项
+            option.parentElement.classList.add('border-success', 'bg-success', 'bg-opacity-10');
+        } else if (isChecked) {
+            // 错误选项（用户选择了但不是正确答案）
+            option.parentElement.classList.add('border-danger', 'bg-danger', 'bg-opacity-10');
+        }
+    });
+}
+
+// 当页面关闭时清理所有WebSocket连接
+window.addEventListener('beforeunload', function() {
+    for (const exerciseId in exerciseSockets) {
+        const socket = exerciseSockets[exerciseId];
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.close();
         }
     }
 });

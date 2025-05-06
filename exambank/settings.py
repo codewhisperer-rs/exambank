@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "markdownify.apps.MarkdownifyConfig",  # 添加 markdownify
     "courses",
+    "channels",  # 添加Channels支持
 ]
 
 MIDDLEWARE = [
@@ -70,6 +71,14 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "exambank.wsgi.application"
+ASGI_APPLICATION = "exambank.asgi.application"  # 添加ASGI应用程序
+
+# Channels设置
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}
 
 
 # Database
