@@ -40,12 +40,21 @@
                         <div class="list-group">
                             {% for mistake in mistakes %}
                             <div class="list-group-item">
-                                <h6 class="mb-1">题 {{ mistake.exercise.number }}. {{ mistake.exercise.section.title }}</h6>
+                                <h6 class="mb-1">
+                                    <a href="{% url 'courses:section_exercises' mistake.exercise.section.id %}?scroll_to_exercise={{ mistake.exercise.id }}" class="text-primary">
+                                        题 {{ mistake.exercise.number }}. {{ mistake.exercise.section.title }}
+                                    </a>
+                                </h6>
                                 <div class="mb-2">{{ mistake.exercise.content|safe }}</div>
                                 <div><strong>正确答案：</strong> {{ mistake.exercise.answer }}</div>
                                 {% if mistake.user_answer %}
                                 <div><strong>您的答案：</strong> {{ mistake.user_answer }}</div>
                                 {% endif %}
+                                <div class="mt-2">
+                                    <a href="{% url 'courses:section_exercises' mistake.exercise.section.id %}?scroll_to_exercise={{ mistake.exercise.id }}" class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-arrow-right-circle"></i> 前往原题
+                                    </a>
+                                </div>
                             </div>
                             {% endfor %}
                         </div>
@@ -180,7 +189,8 @@
 document.querySelectorAll('.show-answer').forEach(button => {
     button.addEventListener('click', function() {
         const exerciseNum = this.dataset.exercise;
-        const answerDiv = document.querySelector(`.card:nth-child(${exerciseNum}) .answer-explanation`);
+        const exerciseCard = this.closest('.card');
+        const answerDiv = exerciseCard.querySelector('.answer-explanation');
         
         if (answerDiv.style.display === 'none') {
             answerDiv.style.display = 'block';
@@ -196,25 +206,25 @@ document.querySelectorAll('.show-answer').forEach(button => {
 document.querySelectorAll('.check-answer').forEach(button => {
     button.addEventListener('click', function() {
         const exerciseNum = this.dataset.exercise;
-        const card = document.querySelector(`.card:nth-child(${exerciseNum})`);
-        const answerDiv = card.querySelector('.answer-explanation');
+        const exerciseCard = this.closest('.card');
+        const answerDiv = exerciseCard.querySelector('.answer-explanation');
         
         // 获取正确答案
         const correctAnswer = answerDiv.querySelector('.answer').textContent.split('：')[1].trim();
         
         // 获取用户选择
         let userAnswer = '';
-        const exerciseType = card.querySelector('input[type="checkbox"]') ? 'multiple' : 'single';
+        const exerciseType = exerciseCard.querySelector('input[type="checkbox"]') ? 'multiple' : 'single';
         
         if (exerciseType === 'single') {
-            const selectedOption = card.querySelector(`input[name="generated_exercise_${exerciseNum}"]:checked`);
+            const selectedOption = exerciseCard.querySelector(`input[name="generated_exercise_${exerciseNum}"]:checked`);
             if (!selectedOption) {
                 alert('请选择一个选项');
                 return;
             }
             userAnswer = selectedOption.value;
         } else {
-            const selectedOptions = card.querySelectorAll(`input[name="generated_exercise_${exerciseNum}[]"]:checked`);
+            const selectedOptions = exerciseCard.querySelectorAll(`input[name="generated_exercise_${exerciseNum}[]"]:checked`);
             if (selectedOptions.length === 0) {
                 alert('请至少选择一个选项');
                 return;
@@ -232,11 +242,11 @@ document.querySelectorAll('.check-answer').forEach(button => {
             '<div class="alert alert-danger mt-3">回答错误</div>';
         
         // 添加或更新结果显示
-        let resultElement = card.querySelector('.result');
+        let resultElement = exerciseCard.querySelector('.result');
         if (!resultElement) {
             resultElement = document.createElement('div');
             resultElement.className = 'result';
-            card.querySelector('.card-body').appendChild(resultElement);
+            exerciseCard.querySelector('.card-body').appendChild(resultElement);
         }
         resultElement.innerHTML = resultHtml;
         
@@ -244,7 +254,7 @@ document.querySelectorAll('.check-answer').forEach(button => {
         answerDiv.style.display = 'block';
         
         // 禁用选项，防止重复提交
-        card.querySelectorAll('input[type="radio"], input[type="checkbox"]').forEach(input => {
+        exerciseCard.querySelectorAll('input[type="radio"], input[type="checkbox"]').forEach(input => {
             input.disabled = true;
         });
         

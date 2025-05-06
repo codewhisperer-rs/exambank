@@ -50,16 +50,16 @@
                                                                                 <i class="bi bi-journal-text"></i> {{ mistake.notes|truncatechars:50 }}
                                                                             </div>
                                                                         {% endif %}
+                                                                        <div class="mt-1">
+                                                                            <a href="{% url 'courses:section_exercises' mistake.exercise.section.id %}?scroll_to_exercise={{ mistake.exercise.id }}" class="btn btn-sm btn-outline-primary">
+                                                                                <i class="bi bi-arrow-right-circle"></i> 前往原题
+                                                                            </a>
+                                                                        </div>
                                                                     </div>
                                                                     <div>
-                                                                        <button class="btn btn-sm btn-outline-primary notes-btn" 
-                                                                                data-exercise-id="{{ mistake.exercise.id }}"
-                                                                                data-current-note="{{ mistake.notes|default:'' }}">
-                                                                            <i class="bi bi-pencil"></i>
-                                                                        </button>
                                                                         <button class="btn btn-sm btn-outline-danger remove-btn" 
                                                                                 data-exercise-id="{{ mistake.exercise.id }}">
-                                                                            <i class="bi bi-trash"></i>
+                                                                            <i class="bi bi-trash"></i> 删除错题
                                                                         </button>
                                                                     </div>
                                                                 </div>
@@ -172,173 +172,213 @@
         </div>
     </div>
 </div>
-
-<!-- 添加笔记模态框 -->
-<div class="modal fade" id="addNoteModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">添加笔记</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <input type="hidden" id="noteExerciseId" value="">
-                <div class="mb-3">
-                    <label for="noteContent" class="form-label">笔记内容</label>
-                    <textarea class="form-control" id="noteContent" rows="5"></textarea>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                <button type="button" class="btn btn-primary" id="saveNoteBtn">保存</button>
-            </div>
-        </div>
-    </div>
-</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-    $(document).ready(function() {
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log("DOM fully loaded and parsed. Initializing mistake collection scripts...");
+        
+        // 确保jQuery加载完成 (如果其他地方仍需要)
+        if (typeof $ === 'undefined') {
+            console.warn('jQuery未加载！依赖jQuery的功能可能无法工作。');
+            // return; // 暂时不返回，因为核心功能已改为原生JS
+        }
+        
         // 查看错题详情
-        $('.mistake-detail-link').click(function(e) {
-            e.preventDefault();
-            const exerciseId = $(this).data('exercise-id');
-            
-            // 这里需要发送AJAX请求获取题目详情
-            $.ajax({
-                url: "{% url 'courses:exercise_detail_api' 0 %}".replace('0', exerciseId),  // 使用Django URL模板生成
-                method: 'GET',
-                success: function(data) {
-                    // 显示题目内容
-                    $('#mistakeDetailModal .exercise-content').html(data.content);
-                    
-                    // 处理选项显示
-                    if (data.options && Object.keys(data.options).length > 0) {
-                        let correctAnswers = data.answer.split(',');
-                        let userAnswers = data.user_answer ? data.user_answer.split(',') : [];
+        const detailLinks = document.querySelectorAll('.mistake-detail-link');
+        console.log(`Found ${detailLinks.length} mistake detail links.`);
+        detailLinks.forEach(function(link) {
+            link.addEventListener('click', function(e) {
+                e.preventDefault();
+                const exerciseId = this.getAttribute('data-exercise-id');
+                
+                // 使用原生fetch API获取题目详情
+                const detailUrl = "{% url 'courses:exercise_detail_api' 0 %}".replace('0', exerciseId); // 使用Django URL标签生成基础URL
+                console.log(`Fetching exercise detail from: ${detailUrl}`); // 添加日志
+                
+                fetch(detailUrl)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`网络响应不正常: ${response.status} ${response.statusText}`); // 更详细的错误
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        console.log("Received exercise detail data:", data);
                         
-                        // 创建选项HTML
-                        let optionsHtml = '';
-                        for (const [key, value] of Object.entries(data.options)) {
-                            // 确定选项类
-                            let optionClass = '';
-                            let optionIcon = '';
+                        // 显示题目内容 (现在是纯净内容)
+                        document.querySelector('#mistakeDetailModal .exercise-content').innerHTML = data.content;
+                        
+                        // 处理选项显示
+                        const optionsContainer = document.querySelector('#mistakeDetailModal .options-container');
+                        const optionsSection = document.querySelector('#mistakeDetailModal .options-section');
+                        optionsContainer.innerHTML = ''; // 清空旧选项
+                        
+                        console.log("Checking for options...");
+                        if (data.options && typeof data.options === 'object' && Object.keys(data.options).length > 0) {
+                            console.log("Options found, processing...");
+                            let correctAnswers = data.answer ? data.answer.split(',') : [];
+                            let userAnswers = data.user_answer ? data.user_answer.split(',') : [];
                             
-                            if (correctAnswers.includes(key)) {
-                                if (userAnswers.includes(key)) {
-                                    // 正确答案且用户选择了
-                                    optionClass = 'bg-success text-white';
-                                    optionIcon = '<i class="bi bi-check-circle-fill"></i> ';
-                                } else {
-                                    // 正确答案但用户未选择
-                                    optionClass = 'border-success border-2';
-                                    optionIcon = '<i class="bi bi-check-circle text-success"></i> ';
+                            // 创建选项HTML
+                            let optionsHtml = '';
+                            for (const [key, value] of Object.entries(data.options)) {
+                                let optionClass = '';
+                                let optionIcon = '';
+                                
+                                if (correctAnswers.includes(key)) {
+                                    if (userAnswers.includes(key)) {
+                                        optionClass = 'bg-success text-white';
+                                        optionIcon = '<i class="bi bi-check-circle-fill"></i> ';
+                                    } else {
+                                        optionClass = 'border-success border-2';
+                                        optionIcon = '<i class="bi bi-check-circle text-success"></i> ';
+                                    }
+                                } else if (userAnswers.includes(key)) {
+                                    optionClass = 'bg-danger text-white';
+                                    optionIcon = '<i class="bi bi-x-circle-fill"></i> ';
                                 }
-                            } else if (userAnswers.includes(key)) {
-                                // 错误答案且用户选择了
-                                optionClass = 'bg-danger text-white';
-                                optionIcon = '<i class="bi bi-x-circle-fill"></i> ';
+                                
+                                optionsHtml += `
+                                    <div class="option-item mb-2 p-2 rounded ${optionClass}">
+                                        ${optionIcon}<strong>${key}.</strong> ${value}
+                                    </div>`;
                             }
+                            console.log("Generated options HTML:", optionsHtml);
                             
-                            optionsHtml += `
-                                <div class="option-item mb-2 p-2 rounded ${optionClass}">
-                                    ${optionIcon}<strong>${key}.</strong> ${value}
-                                </div>`;
+                            // 更新选项容器
+                            optionsContainer.innerHTML = optionsHtml;
+                            optionsSection.style.display = 'block';
+
+                            // 如果选项是生成的，可以添加提示
+                            if (data.options_generated) {
+                                const note = document.createElement('div');
+                                note.className = 'alert alert-warning alert-sm mt-2';
+                                note.innerHTML = '<small><i class="bi bi-exclamation-triangle"></i> 注意：此题选项数据缺失，显示为占位符。</small>';
+                                optionsContainer.appendChild(note);
+                            }
+                        } else {
+                            console.log("No options found in data.");
+                            optionsSection.style.display = 'none';
                         }
                         
-                        // 更新选项容器
-                        $('#mistakeDetailModal .options-container').html(optionsHtml);
-                        $('#mistakeDetailModal .options-section').show();
-                    } else {
-                        $('#mistakeDetailModal .options-section').hide();
-                    }
-                    
-                    // 显示用户答案和正确答案
-                    $('#mistakeDetailModal .correct-answer').text(data.answer);
-                    
-                    if (data.user_answer) {
-                        $('#mistakeDetailModal .user-answer').text(data.user_answer);
-                        $('#mistakeDetailModal .user-answer-section').show();
-                    } else {
-                        $('#mistakeDetailModal .user-answer-section').hide();
-                    }
-                    
-                    // 显示解析
-                    $('#mistakeDetailModal .explanation').html(data.explanation);
-                    
-                    // 显示模态框
-                    $('#mistakeDetailModal').modal('show');
-                },
-                error: function() {
-                    alert('获取题目详情失败');
-                }
+                        // 显示用户答案和正确答案
+                        document.querySelector('#mistakeDetailModal .correct-answer').textContent = data.answer || 'N/A';
+                        const userAnswerSection = document.querySelector('#mistakeDetailModal .user-answer-section');
+                        const userAnswerBadge = document.querySelector('#mistakeDetailModal .user-answer');
+                        if (data.user_answer) {
+                            userAnswerBadge.textContent = data.user_answer;
+                            userAnswerSection.style.display = 'block';
+                        } else {
+                            userAnswerSection.style.display = 'none';
+                        }
+                        
+                        // 显示解析
+                        document.querySelector('#mistakeDetailModal .explanation').innerHTML = data.explanation || '无解析';
+                        
+                        // 显示模态框
+                        var myModal = new bootstrap.Modal(document.getElementById('mistakeDetailModal'));
+                        myModal.show();
+                    })
+                    .catch(error => {
+                        console.error('获取题目详情失败:', error);
+                        alert('获取题目详情失败: ' + error.message);
+                    });
             });
         });
         
         // 从错题集移除
-        $('.remove-btn').click(function() {
-            const exerciseId = $(this).data('exercise-id');
-            const listItem = $(this).closest('li');
-            
-            if (confirm('确定要从错题集中移除这道题吗？')) {
-                $.ajax({
-                    url: '{% url "courses:remove_from_mistakes" %}',
-                    method: 'POST',
-                    data: JSON.stringify({exercise_id: exerciseId}),
-                    contentType: 'application/json',
-                    headers: {'X-CSRFToken': getCsrfToken()},
-                    success: function(data) {
-                        listItem.fadeOut(function() {
-                            $(this).remove();
-                        });
-                    },
-                    error: function() {
-                        alert('移除题目失败');
+        const removeButtons = document.querySelectorAll('.remove-btn');
+        console.log(`Found ${removeButtons.length} remove buttons.`);
+        removeButtons.forEach(function(button) {
+            button.addEventListener('click', function() {
+                console.log("Remove button clicked!");
+                const exerciseId = this.getAttribute('data-exercise-id');
+                const listItem = this.closest('li');
+                
+                console.log(`Attempting to remove exercise ID: ${exerciseId}`);
+                
+                if (!exerciseId) {
+                    console.error('无法获取 exercise ID');
+                    alert('无法获取题目ID，无法删除。');
+                    return;
+                }
+                
+                if (confirm('确定要从错题集中移除这道题吗？')) {
+                    console.log("User confirmed removal.");
+                    // 获取CSRF Token
+                    const csrftokenInput = document.querySelector('[name=csrfmiddlewaretoken]');
+                    if (!csrftokenInput) {
+                        console.error('无法找到 CSRF token input');
+                        alert('页面错误，无法完成删除操作 (缺少CSRF)。');
+                        return;
                     }
-                });
-            }
-        });
-        
-        // 添加/编辑笔记
-        $('.notes-btn').click(function() {
-            const exerciseId = $(this).data('exercise-id');
-            const currentNote = $(this).data('current-note');
-            
-            $('#noteExerciseId').val(exerciseId);
-            $('#noteContent').val(currentNote);
-            $('#addNoteModal').modal('show');
-        });
-        
-        // 保存笔记
-        $('#saveNoteBtn').click(function() {
-            const exerciseId = $('#noteExerciseId').val();
-            const note = $('#noteContent').val();
-            
-            $.ajax({
-                url: '{% url "courses:add_mistake_note" %}',
-                method: 'POST',
-                data: JSON.stringify({
-                    exercise_id: exerciseId,
-                    note: note
-                }),
-                contentType: 'application/json',
-                headers: {'X-CSRFToken': getCsrfToken()},
-                success: function(data) {
-                    $('#addNoteModal').modal('hide');
-                    // 刷新页面以显示更新后的笔记
-                    location.reload();
-                },
-                error: function() {
-                    alert('保存笔记失败');
+                    const csrftoken = csrftokenInput.value;
+                    console.log(`CSRF Token: ${csrftoken}`);
+                    
+                    // 发送删除请求
+                    console.log("Sending fetch request..."); 
+                    fetch('{% url "courses:remove_from_mistakes" %}', { // 使用Django URL标签
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': csrftoken
+                        },
+                        body: JSON.stringify({exercise_id: exerciseId})
+                    })
+                    .then(response => {
+                        console.log(`Response status: ${response.status}`);
+                        if (!response.ok) {
+                            // 尝试解析错误信息
+                            return response.json().then(errData => {
+                                console.error('Server error data:', errData);
+                                throw new Error(`服务器错误: ${response.status} - ${errData.message || '未知错误'}`);
+                            }).catch(() => {
+                                // 如果无法解析JSON，抛出通用错误
+                                throw new Error(`服务器响应不正常: ${response.status} ${response.statusText}`);
+                            });
+                        }
+                        return response.json(); // 解析成功的JSON响应
+                    })
+                    .then(data => {
+                        console.log('删除成功:', data);
+                        // 成功删除后，从DOM中移除元素
+                        listItem.style.transition = 'opacity 0.5s ease'; // 确保过渡效果平滑
+                        listItem.style.opacity = '0';
+                        setTimeout(() => {
+                            listItem.remove();
+                            // 更新错题总数显示（如果存在）
+                            const totalMistakesElement = document.querySelector('h1 small.text-muted');
+                            if (totalMistakesElement) {
+                                const currentCountMatch = totalMistakesElement.textContent.match(/\d+/);
+                                if (currentCountMatch) {
+                                    const newCount = parseInt(currentCountMatch[0], 10) - 1;
+                                    totalMistakesElement.textContent = `(共${newCount}题)`;
+                                }
+                            }
+                        }, 500); 
+
+                        // 检查是否还有剩余题目，如果没有则可以提示或刷新
+                        const remainingItems = document.querySelectorAll('.list-group-item').length;
+                        console.log(`Remaining items after removal attempt: ${remainingItems - 1}`); 
+                        if (remainingItems <= 1) { // 检查是否只剩下正在消失的这一个
+                             console.log('错题集已清空，准备刷新...');
+                             // 可以选择刷新或者显示空状态信息
+                             // setTimeout(() => { window.location.reload(); }, 1000);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('移除题目失败 (Fetch Error):', error);
+                        alert('移除题目失败: ' + error.message);
+                    });
+                } else {
+                    console.log("User cancelled removal.");
                 }
             });
         });
         
-        // 获取CSRF Token
-        function getCsrfToken() {
-            return document.querySelector('[name=csrfmiddlewaretoken]').value;
-        }
+        console.log("Mistake collection scripts initialized.");
     });
 </script>
 {% endblock %} 

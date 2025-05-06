@@ -29,4 +29,8 @@ urlpatterns = [
     
     # 新增 - 习题提交API端点
     path('api/submit-exercise-attempt/', views.submit_exercise_attempt, name='submit_exercise_attempt_api'),
+    
+    # 新增 - AI生成习题相关API
+    path('api/ai-exercise-detail/<int:exercise_id>/', views.get_ai_exercise_detail, name='ai_exercise_detail_api'),
+    path('api/submit-ai-exercise-attempt/', views.submit_ai_exercise_attempt, name='submit_ai_exercise_attempt_api'),
 ] 

@@ -53,6 +53,178 @@
                                         </span>
                                     </div>
                                     <p class="card-text">{{ item.content }}</p>
+                                    
+                                    <!-- 选择题选项 -->
+                                    {% if item.options %}
+                                    <div class="exercise-options mt-3" id="options-{{ forloop.counter }}">
+                                        <form class="answer-form" id="form-{{ forloop.counter }}">
+                                            {% if item.type == '单选题' %}
+                                                {% for key, value in item.options.items %}
+                                                <div class="form-check mb-2">
+                                                    <input class="form-check-input" type="radio" name="answer-{{ forloop.parentloop.counter }}" 
+                                                           value="{{ key }}" id="option-{{ forloop.parentloop.counter }}-{{ key }}">
+                                                    <label class="form-check-label w-100" for="option-{{ forloop.parentloop.counter }}-{{ key }}">
+                                                        <strong>{{ key }}.</strong> {{ value }}
+                                                    </label>
+                                                </div>
+                                                {% endfor %}
+                                            {% elif item.type == '多选题' %}
+                                                {% for key, value in item.options.items %}
+                                                <div class="form-check mb-2">
+                                                    <input class="form-check-input" type="checkbox" name="answer-{{ forloop.parentloop.counter }}[]" 
+                                                           value="{{ key }}" id="option-{{ forloop.parentloop.counter }}-{{ key }}">
+                                                    <label class="form-check-label w-100" for="option-{{ forloop.parentloop.counter }}-{{ key }}">
+                                                        <strong>{{ key }}.</strong> {{ value }}
+                                                    </label>
+                                                </div>
+                                                {% endfor %}
+                                            {% endif %}
+                                            
+                                            <button type="button" class="btn btn-primary btn-sm mt-2 submit-answer" 
+                                                    data-id="{{ forloop.counter }}" 
+                                                    data-answer="{{ item.answer }}" 
+                                                    data-type="{{ item.type }}"
+                                                    data-db-id="{{ item.db_id }}">
+                                                提交答案
+                                            </button>
+                                            
+                                            <button type="button" class="btn btn-secondary btn-sm mt-2 view-answer ms-2"
+                                                    data-id="{{ forloop.counter }}"
+                                                    data-db-id="{{ item.db_id }}">
+                                                查看答案
+                                            </button>
+                                        </form>
+                                        
+                                        <!-- 答题结果显示区域 -->
+                                        <div class="answer-result mt-3" id="result-{{ forloop.counter }}" style="display:none;">
+                                            <div class="alert d-flex align-items-center" role="alert"></div>
+                                        </div>
+                                        
+                                        <!-- 解析区域 -->
+                                        <div class="explanation mt-3" id="explanation-{{ forloop.counter }}" style="display:none;">
+                                            <div class="card">
+                                                <div class="card-header bg-light">
+                                                    <h6 class="mb-0">解析</h6>
+                                                </div>
+                                                <div class="card-body">
+                                                    <div class="correct-answer mb-2">
+                                                        <strong>正确答案:</strong> <span class="badge bg-success">{{ item.answer }}</span>
+                                                    </div>
+                                                    {% if item.explanation %}
+                                                    <p>{{ item.explanation }}</p>
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% elif item.type == '单选题' or item.type == '多选题' %}
+                                    <!-- 对于没有提供选项但类型为选择题的情况，生成标准ABCD选项 -->
+                                    <div class="exercise-options mt-3" id="options-{{ forloop.counter }}">
+                                        <form class="answer-form" id="form-{{ forloop.counter }}">
+                                            {% if item.type == '单选题' %}
+                                                <div class="form-check mb-2">
+                                                    <input class="form-check-input" type="radio" name="answer-{{ forloop.counter }}" 
+                                                           value="A" id="option-{{ forloop.counter }}-A">
+                                                    <label class="form-check-label w-100" for="option-{{ forloop.counter }}-A">
+                                                        <strong>A.</strong> 选项A
+                                                    </label>
+                                                </div>
+                                                <div class="form-check mb-2">
+                                                    <input class="form-check-input" type="radio" name="answer-{{ forloop.counter }}" 
+                                                           value="B" id="option-{{ forloop.counter }}-B">
+                                                    <label class="form-check-label w-100" for="option-{{ forloop.counter }}-B">
+                                                        <strong>B.</strong> 选项B
+                                                    </label>
+                                                </div>
+                                                <div class="form-check mb-2">
+                                                    <input class="form-check-input" type="radio" name="answer-{{ forloop.counter }}" 
+                                                           value="C" id="option-{{ forloop.counter }}-C">
+                                                    <label class="form-check-label w-100" for="option-{{ forloop.counter }}-C">
+                                                        <strong>C.</strong> 选项C
+                                                    </label>
+                                                </div>
+                                                <div class="form-check mb-2">
+                                                    <input class="form-check-input" type="radio" name="answer-{{ forloop.counter }}" 
+                                                           value="D" id="option-{{ forloop.counter }}-D">
+                                                    <label class="form-check-label w-100" for="option-{{ forloop.counter }}-D">
+                                                        <strong>D.</strong> 选项D
+                                                    </label>
+                                                </div>
+                                            {% elif item.type == '多选题' %}
+                                                <div class="form-check mb-2">
+                                                    <input class="form-check-input" type="checkbox" name="answer-{{ forloop.counter }}[]" 
+                                                           value="A" id="option-{{ forloop.counter }}-A">
+                                                    <label class="form-check-label w-100" for="option-{{ forloop.counter }}-A">
+                                                        <strong>A.</strong> 选项A
+                                                    </label>
+                                                </div>
+                                                <div class="form-check mb-2">
+                                                    <input class="form-check-input" type="checkbox" name="answer-{{ forloop.counter }}[]" 
+                                                           value="B" id="option-{{ forloop.counter }}-B">
+                                                    <label class="form-check-label w-100" for="option-{{ forloop.counter }}-B">
+                                                        <strong>B.</strong> 选项B
+                                                    </label>
+                                                </div>
+                                                <div class="form-check mb-2">
+                                                    <input class="form-check-input" type="checkbox" name="answer-{{ forloop.counter }}[]" 
+                                                           value="C" id="option-{{ forloop.counter }}-C">
+                                                    <label class="form-check-label w-100" for="option-{{ forloop.counter }}-C">
+                                                        <strong>C.</strong> 选项C
+                                                    </label>
+                                                </div>
+                                                <div class="form-check mb-2">
+                                                    <input class="form-check-input" type="checkbox" name="answer-{{ forloop.counter }}[]" 
+                                                           value="D" id="option-{{ forloop.counter }}-D">
+                                                    <label class="form-check-label w-100" for="option-{{ forloop.counter }}-D">
+                                                        <strong>D.</strong> 选项D
+                                                    </label>
+                                                </div>
+                                            {% endif %}
+                                            
+                                            <div class="alert alert-warning">
+                                                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                                                <small>注意: 此题未提供具体选项内容，仅显示标准选项。正确答案为: {{ item.answer }}</small>
+                                            </div>
+                                            
+                                            <button type="button" class="btn btn-primary btn-sm mt-2 submit-answer" 
+                                                    data-id="{{ forloop.counter }}" 
+                                                    data-answer="{{ item.answer }}" 
+                                                    data-type="{{ item.type }}"
+                                                    data-db-id="{{ item.db_id }}">
+                                                提交答案
+                                            </button>
+                                            
+                                            <button type="button" class="btn btn-secondary btn-sm mt-2 view-answer ms-2"
+                                                    data-id="{{ forloop.counter }}"
+                                                    data-db-id="{{ item.db_id }}">
+                                                查看答案
+                                            </button>
+                                        </form>
+                                        
+                                        <!-- 答题结果显示区域 -->
+                                        <div class="answer-result mt-3" id="result-{{ forloop.counter }}" style="display:none;">
+                                            <div class="alert d-flex align-items-center" role="alert"></div>
+                                        </div>
+                                        
+                                        <!-- 解析区域 -->
+                                        <div class="explanation mt-3" id="explanation-{{ forloop.counter }}" style="display:none;">
+                                            <div class="card">
+                                                <div class="card-header bg-light">
+                                                    <h6 class="mb-0">解析</h6>
+                                                </div>
+                                                <div class="card-body">
+                                                    <div class="correct-answer mb-2">
+                                                        <strong>正确答案:</strong> <span class="badge bg-success">{{ item.answer }}</span>
+                                                    </div>
+                                                    {% if item.explanation %}
+                                                    <p>{{ item.explanation }}</p>
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                    
                                     <div class="mt-2">
                                         <span class="badge bg-secondary me-2">{{ item.type }}</span>
                                         {% for kp in item.knowledge_points %}
@@ -165,6 +337,165 @@
             $('#loadingIndicator').show();
             return true;
         });
+        
+        // 处理答案提交
+        $('.submit-answer').on('click', function() {
+            const id = $(this).data('id');
+            const correctAnswer = $(this).data('answer').toString();
+            const questionType = $(this).data('type');
+            let userAnswer = '';
+            
+            // 获取用户答案
+            if (questionType === '单选题') {
+                userAnswer = $(`input[name="answer-${id}"]:checked`).val() || '';
+            } else if (questionType === '多选题') {
+                const selectedOptions = [];
+                $(`input[name="answer-${id}[]"]:checked`).each(function() {
+                    selectedOptions.push($(this).val());
+                });
+                userAnswer = selectedOptions.sort().join(',');
+            }
+            
+            // 如果用户没有选择任何选项
+            if (!userAnswer) {
+                alert('请选择答案后再提交！');
+                return;
+            }
+            
+            // 检查是否是AI生成的题目（带有db_id）
+            const dbId = $(this).data('db-id') || null;
+            
+            if (dbId) {
+                // 调用API提交AI生成题目的答案
+                submitAIExerciseAnswer(dbId, userAnswer, id);
+            } else {
+                // 本地检查答案（原来的逻辑）
+                const isCorrect = (userAnswer.toUpperCase() === correctAnswer.toUpperCase());
+                
+                // 显示结果
+                const resultDiv = $(`#result-${id}`);
+                const alertDiv = resultDiv.find('.alert');
+                
+                if (isCorrect) {
+                    alertDiv.removeClass('alert-danger').addClass('alert-success');
+                    alertDiv.html('<i class="bi bi-check-circle-fill me-2"></i> <strong>回答正确！</strong>');
+                } else {
+                    alertDiv.removeClass('alert-success').addClass('alert-danger');
+                    alertDiv.html(`<i class="bi bi-x-circle-fill me-2"></i> <strong>回答错误！</strong> 您的答案：${userAnswer}`);
+                }
+                
+                // 显示结果和解析
+                resultDiv.show();
+                $(`#explanation-${id}`).show();
+            }
+            
+            // 禁用选项和提交按钮
+            $(`#form-${id} input`).prop('disabled', true);
+            $(this).prop('disabled', true);
+            
+            // 添加重新尝试按钮
+            if (!$(`#retry-${id}`).length) {
+                const retryButton = $('<button></button>')
+                    .attr('id', `retry-${id}`)
+                    .addClass('btn btn-outline-secondary btn-sm ms-2')
+                    .text('重新尝试')
+                    .on('click', function() {
+                        // 重置表单
+                        $(`#form-${id}`)[0].reset();
+                        $(`#form-${id} input`).prop('disabled', false);
+                        $(`.submit-answer[data-id="${id}"]`).prop('disabled', false);
+                        
+                        // 隐藏结果和解析
+                        $(`#result-${id}`).hide();
+                        $(`#explanation-${id}`).hide();
+                        
+                        // 移除重试按钮
+                        $(this).remove();
+                    });
+                
+                $(this).after(retryButton);
+            }
+        });
+        
+        // 查看答案按钮
+        $('.view-answer').on('click', function() {
+            const id = $(this).data('id');
+            const dbId = $(this).data('db-id') || null;
+            
+            if (dbId) {
+                // 如果是AI生成题目，通过API获取答案
+                $.ajax({
+                    url: `/courses/api/ai-exercise-detail/${dbId}/`,
+                    type: 'GET',
+                    success: function(response) {
+                        // 显示答案和解析
+                        $(`#result-${id}`).show();
+                        $(`#explanation-${id}`).show();
+                        
+                        // 禁用选项和提交按钮
+                        $(`#form-${id} input`).prop('disabled', true);
+                        $(`.submit-answer[data-id="${id}"]`).prop('disabled', true);
+                        $(`.view-answer[data-id="${id}"]`).prop('disabled', true);
+                    },
+                    error: function(xhr) {
+                        alert('获取答案失败：' + (xhr.responseJSON?.error || '未知错误'));
+                    }
+                });
+            } else {
+                // 直接显示答案（原逻辑）
+                $(`#result-${id}`).show();
+                $(`#explanation-${id}`).show();
+                
+                // 禁用选项和提交按钮
+                $(`#form-${id} input`).prop('disabled', true);
+                $(`.submit-answer[data-id="${id}"]`).prop('disabled', true);
+                $(this).prop('disabled', true);
+            }
+        });
+        
+        // 提交AI生成题目答案的函数
+        function submitAIExerciseAnswer(exerciseId, userAnswer, displayId) {
+            $.ajax({
+                url: '/courses/api/submit-ai-exercise-attempt/',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    exercise_id: exerciseId,
+                    user_answer: userAnswer
+                }),
+                success: function(response) {
+                    // 显示结果
+                    const resultDiv = $(`#result-${displayId}`);
+                    const alertDiv = resultDiv.find('.alert');
+                    
+                    if (response.is_correct) {
+                        alertDiv.removeClass('alert-danger').addClass('alert-success');
+                        alertDiv.html('<i class="bi bi-check-circle-fill me-2"></i> <strong>回答正确！</strong>');
+                    } else {
+                        alertDiv.removeClass('alert-success').addClass('alert-danger');
+                        alertDiv.html(`<i class="bi bi-x-circle-fill me-2"></i> <strong>回答错误！</strong> 您的答案：${userAnswer}，正确答案：${response.correct_answer}`);
+                    }
+                    
+                    // 更新解析区域
+                    const explanationDiv = $(`#explanation-${displayId}`);
+                    explanationDiv.find('.correct-answer .badge').text(response.correct_answer);
+                    if(response.explanation) {
+                        explanationDiv.find('.card-body p').text(response.explanation);
+                    }
+                    
+                    // 显示结果和解析
+                    resultDiv.show();
+                    explanationDiv.show();
+                },
+                error: function(xhr) {
+                    alert('提交答案失败：' + (xhr.responseJSON?.message || '未知错误'));
+                    
+                    // 恢复表单状态，允许重新提交
+                    $(`#form-${displayId} input`).prop('disabled', false);
+                    $(`.submit-answer[data-id="${displayId}"]`).prop('disabled', false);
+                }
+            });
+        }
     });
 </script>
 {% endblock %} 

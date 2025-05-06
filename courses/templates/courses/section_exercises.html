@@ -355,5 +355,62 @@ document.querySelectorAll('a[href^="#"]').forEach(anchor => {
         }
     });
 });
+
+// 处理从URL参数定位到特定练习题
+document.addEventListener('DOMContentLoaded', function() {
+    // 获取URL参数
+    const urlParams = new URLSearchParams(window.location.search);
+    const scrollToExercise = urlParams.get('scroll_to_exercise');
+    
+    if (scrollToExercise) {
+        // 查找包含这个练习ID的卡片
+        // 先尝试找到表单元素
+        const exerciseForm = document.getElementById(`exercise-form-${scrollToExercise}`);
+        if (exerciseForm) {
+            // 找到对应的卡片元素（向上查找最近的.exercise-card）
+            const exerciseCard = exerciseForm.closest('.exercise-card');
+            if (exerciseCard) {
+                // 滚动到题目位置
+                setTimeout(() => {
+                    exerciseCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    
+                    // 添加高亮效果
+                    exerciseCard.classList.add('border-primary');
+                    exerciseCard.style.boxShadow = '0 0 10px rgba(0, 123, 255, 0.5)';
+                    
+                    // 5秒后移除高亮
+                    setTimeout(() => {
+                        exerciseCard.classList.remove('border-primary');
+                        exerciseCard.style.boxShadow = '';
+                    }, 5000);
+                }, 300); // 延迟一点执行，确保页面已完全加载
+            }
+        } else {
+            // 如果找不到表单，尝试直接通过内容查找
+            const allExerciseCards = document.querySelectorAll('.exercise-card');
+            for (const card of allExerciseCards) {
+                // 查找卡片内可能包含题目ID的元素
+                const submitButton = card.querySelector(`[data-exercise-id="${scrollToExercise}"]`);
+                if (submitButton) {
+                    // 滚动到题目位置
+                    setTimeout(() => {
+                        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        
+                        // 添加高亮效果
+                        card.classList.add('border-primary');
+                        card.style.boxShadow = '0 0 10px rgba(0, 123, 255, 0.5)';
+                        
+                        // 5秒后移除高亮
+                        setTimeout(() => {
+                            card.classList.remove('border-primary');
+                            card.style.boxShadow = '';
+                        }, 5000);
+                    }, 300);
+                    break;
+                }
+            }
+        }
+    }
+});
 </script>
 {% endblock %}

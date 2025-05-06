@@ -142,3 +142,11 @@ MARKDOWNIFY = {
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# 添加您的前端来源地址
+CSRF_TRUSTED_ORIGINS = [
+    'http://127.0.0.1:8000',
+    'http://127.0.0.1',  # 添加不带端口的来源
+    # 如果您还通过其他地址访问（例如 localhost），也需要添加
+    # 'http://localhost:8000',
+]

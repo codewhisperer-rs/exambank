@@ -6,13 +6,14 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, render, redirect
 from django.views.decorators.csrf import csrf_exempt  # 添加CSRF豁免装饰器
 # 确保导入所有需要的模型
-from .models import Book, Chapter, Section, Exercise, Knowledge, UserMistakeCollection, ExerciseKnowledge, ExerciseAttempt
+from .models import Book, Chapter, Section, Exercise, Knowledge, UserMistakeCollection, ExerciseKnowledge, ExerciseAttempt, AIGeneratedExercise, AIExerciseAttempt
 from django.db.models import Count, Q, F, Sum, Case, When, Value, IntegerField
 from django.utils import timezone
 import markdown
 # 确保 User 模型在模型文件中已导入，或者在这里导入
 # from django.contrib.auth.models import User
 import logging
+import time
 
 # 替换配置
 # Grok API配置
@@ -21,10 +22,10 @@ GROK_API_URL = " https://api.x.ai/v1/chat/completions"  # 假设的API URL
 
 # DeepSeek API配置
 DEEPSEEK_API_KEY = "sk-f2d0085bbb88479b9b0d7b1f2451b310"  # 实际使用时需要填入您的API密钥
-DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"  # 假设的API URL
+DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"  # 假设的API URL
 
 # 当前使用的模型类型，可以是 "grok" 或 "deepseek"
-CURRENT_MODEL = "grok-3-latest"  # 默认使用Grok
+CURRENT_MODEL = "grok"  # 默认使用Grok
 
 logger = logging.getLogger(__name__)
 
@@ -516,13 +517,12 @@ def get_exercise_detail(request, exercise_id):
             'markdown.extensions.extra',
             'markdown.extensions.codehilite',
             'markdown.extensions.toc',
-            'pymdownx.arithmatex'  # 添加对 LaTeX 公式的支持
+            'pymdownx.arithmatex'
         ], extension_configs={
             'pymdownx.arithmatex': {
-                'generic': True  # 使用通用的 MathJax 配置
+                'generic': True
             }
         })
-        
         content = md.convert(exercise.content)
         explanation = md.convert(exercise.explanation) if exercise.explanation else ''
         
@@ -530,49 +530,57 @@ def get_exercise_detail(request, exercise_id):
         user_mistake = None
         user_answer = None
         try:
-            # 查找该用户对这个习题的错题记录
             user_mistake = UserMistakeCollection.objects.get(
                 user=request.user,
                 exercise=exercise
             )
-            
-            # 优先使用错题集中保存的最近错误答案
             if user_mistake.last_wrong_answer:
                 user_answer = user_mistake.last_wrong_answer
             else:
-                # 如果没有保存最近错误答案，则查找最近一次的错误尝试
                 latest_attempt = ExerciseAttempt.objects.filter(
                     user=request.user,
                     exercise=exercise,
-                    is_correct=False  # 只查找错误的尝试
+                    is_correct=False
                 ).order_by('-attempt_time').first()
-                
                 if latest_attempt:
                     user_answer = latest_attempt.user_answer
         except UserMistakeCollection.DoesNotExist:
             pass
-        
+
         # 获取选项信息
         options_dict = {}
+        options_generated = False # 添加标志，指示选项是否为生成的
         if exercise.options and isinstance(exercise.options, dict):
             options_dict = exercise.options
         
-        # 构建选项的HTML表示
-        options_html = ''
-        for key, value in options_dict.items():
-            options_html += f'<div class="option"><strong>{key}.</strong> {value}</div>'
+        # 如果是选择题但没有选项，生成默认选项
+        if not options_dict and exercise.type in ['single', 'multiple']:
+            options_dict = {
+                'A': '选项 A (无数据)',
+                'B': '选项 B (无数据)',
+                'C': '选项 C (无数据)',
+                'D': '选项 D (无数据)'
+            }
+            options_generated = True
         
-        # 完整的内容
-        full_content = f"{content}<div class='exercise-options mt-3'>{options_html}</div>"
+        # 构建选项的HTML表示 (这段现在不需要，交给前端处理)
+        # options_html = ''
+        # for key, value in options_dict.items():
+        #     options_html += f'<div class="option"><strong>{key}.</strong> {value}</div>'
+        
+        # 不再将选项HTML嵌入content，前端会根据options_dict渲染
+        # full_content = f"{content}<div class='exercise-options mt-3'>{options_html}</div>"
+        full_content = content # 只返回题目内容本身
         
         response_data = {
             'id': exercise.id,
             'type': exercise.type,
             'type_display': exercise.get_type_display(),
-            'content': full_content,
-            'options': options_dict,  # 添加原始选项数据
+            'content': full_content, # 返回纯净的题目内容
+            'options': options_dict,  # 返回选项字典（可能是生成的）
+            'options_generated': options_generated, # 添加标志
             'answer': exercise.answer,
-            'user_answer': user_answer,  # 添加用户答案
+            'user_answer': user_answer,
             'explanation': explanation,
             'section': {
                 'id': exercise.section.id,
@@ -583,7 +591,10 @@ def get_exercise_detail(request, exercise_id):
         
         return JsonResponse(response_data)
     except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+        # 记录详细错误日志
+        import traceback
+        logger.error(f"Error in get_exercise_detail for exercise {exercise_id}: {str(e)}\n{traceback.format_exc()}")
+        return JsonResponse({'error': '获取题目详情时发生内部错误'}, status=500)
 
 @login_required
 def ai_recommend_exercises(request):
@@ -620,7 +631,7 @@ def get_ai_exercise_recommendations(request):
     """处理AI推荐请求并返回结果"""
     try:
         model_type = request.POST.get('model_type', CURRENT_MODEL)
-        print(f"收到推荐请求，模型类型: {model_type}")
+        logger.info(f"收到推荐请求，模型类型: {model_type}")
         
         # 确保模型类型有效
         if model_type not in ['grok', 'deepseek']:
@@ -648,7 +659,72 @@ def get_ai_exercise_recommendations(request):
         prompt = _prepare_recommendation_prompt(request.user, mistake_collections)
         
         # 调用大模型获取推荐结果
-        recommendations = _call_large_language_model(prompt, model_type)
+        raw_recommendations = _call_large_language_model_with_retry(prompt, model_type)
+        
+        # 记录原始返回
+        logger.info(f"API原始返回: {json.dumps(raw_recommendations, ensure_ascii=False)}")
+        
+        # 后处理推荐结果，确保格式正确
+        recommendations = _post_process_recommendations(raw_recommendations)
+        
+        # 记录处理后的结果
+        logger.info(f"处理后的结果: {json.dumps(recommendations, ensure_ascii=False)}")
+        
+        # 最后安全检查，确保每个推荐题目至少有options字段
+        for item in recommendations:
+            if isinstance(item, dict) and 'type' in item:
+                if item['type'] in ['单选题', '多选题'] and ('options' not in item or not item['options']):
+                    logger.warning(f"推荐题目缺少options字段: {json.dumps(item, ensure_ascii=False)}")
+                    # 确保添加默认选项
+                    item['options'] = {
+                        'A': '选项A (系统生成)',
+                        'B': '选项B (系统生成)',
+                        'C': '选项C (系统生成)',
+                        'D': '选项D (系统生成)'
+                    }
+        
+        # 将推荐结果保存到数据库
+        saved_recommendations = []
+        for item in recommendations:
+            if isinstance(item, dict) and 'content' in item and not 'error' in item:
+                # 将题目类型转换为数据库格式
+                exercise_type = 'single'  # 默认为单选题
+                if item.get('type') == '多选题':
+                    exercise_type = 'multiple'
+                elif item.get('type') == '综合题':
+                    exercise_type = 'comprehensive'
+                
+                # 处理难度
+                difficulty = 'medium'  # 默认为中等
+                if item.get('difficulty') == '简单':
+                    difficulty = 'easy'
+                elif item.get('difficulty') == '困难':
+                    difficulty = 'hard'
+                
+                # 处理知识点
+                knowledge_points = item.get('knowledge_points', [])
+                if isinstance(knowledge_points, str):
+                    knowledge_points = [knowledge_points]
+                
+                # 创建或更新AI习题记录
+                ai_exercise, created = AIGeneratedExercise.objects.update_or_create(
+                    user=request.user,
+                    content=item['content'],
+                    defaults={
+                        'model_type': model_type,
+                        'type': exercise_type,
+                        'options': item.get('options'),
+                        'answer': item.get('answer', ''),
+                        'explanation': item.get('explanation', '无解析'),
+                        'difficulty': difficulty,
+                        'knowledge_points': knowledge_points,
+                        'reason': item.get('reason', '基于您的学习情况推荐')
+                    }
+                )
+                
+                # 将数据库ID添加到推荐结果
+                item['db_id'] = ai_exercise.id
+                saved_recommendations.append(ai_exercise)
         
         # 准备渲染上下文
         context = {
@@ -661,7 +737,7 @@ def get_ai_exercise_recommendations(request):
         
         return render(request, 'courses/ai_recommend.html', context)
     except Exception as e:
-        print(f"生成推荐时出错: {str(e)}")
+        logger.error(f"生成推荐时出错: {str(e)}", exc_info=True)
         context = {
             'error_message': f'生成推荐时出错: {str(e)}',
             'mistakes': UserMistakeCollection.objects.filter(
@@ -708,12 +784,17 @@ def _prepare_recommendation_prompt(user, mistake_collections):
 {json.dumps(exercises_info, ensure_ascii=False, indent=2)}
 
 请根据以上错题记录，分析学生的知识点薄弱区域，并推荐5个适合的练习题。
+对于选择题，必须提供选项和正确答案；对于所有题目，必须提供详细解析。
+
 每个推荐的题目应包含：
-1. 题目内容
-2. 题目类型（单选题/多选题/综合题）
-3. 难度级别（简单/中等/困难）
-4. 相关知识点
-5. 推荐理由
+1. content: 题目内容
+2. type: 题目类型（单选题/多选题/综合题）
+3. difficulty: 难度级别（简单/中等/困难）
+4. options: 若为选择题，提供A、B、C、D选项及其内容
+5. answer: 正确答案（单选题为A/B/C/D之一，多选题为逗号分隔的选项，如"A,C"）
+6. explanation: 详细解析
+7. knowledge_points: 相关知识点列表
+8. reason: 推荐理由
 
 请以JSON格式返回，格式如下:
 [
@@ -721,32 +802,119 @@ def _prepare_recommendation_prompt(user, mistake_collections):
     "content": "题目内容",
     "type": "题目类型",
     "difficulty": "难度级别",
+    "options": {{
+      "A": "选项A内容",
+      "B": "选项B内容",
+      "C": "选项C内容",
+      "D": "选项D内容"
+    }},
+    "answer": "正确答案",
+    "explanation": "详细解析",
     "knowledge_points": ["知识点1", "知识点2"],
     "reason": "推荐理由"
   }},
   ...
 ]
+
+注意：确保所有选择题都提供完整的选项内容，以及正确的答案和解析。
 """
     return prompt
 
-def _call_large_language_model(prompt, model_type="grok"):
-    """调用大语言模型API获取推荐"""
-    # 如果API密钥为空，使用模拟数据（开发环境）
+def _call_large_language_model_with_retry(prompt, model_type="grok", max_retries=3, timeout=60):
+    """带有重试机制的大语言模型API调用函数
+    
+    Args:
+        prompt: 提示词
+        model_type: 模型类型，"grok"或"deepseek"
+        max_retries: 最大重试次数
+        timeout: 请求超时时间（秒）
+    
+    Returns:
+        list: 处理后的模型响应
+    """
+    logger.info(f"开始调用{model_type}模型API（带重试机制），最大重试次数：{max_retries}，超时：{timeout}秒")
+    
+    # 如果API密钥未设置，使用模拟数据
     if model_type == "grok" and not GROK_API_KEY:
-        logger.warning("Grok API密钥未设置，使用模拟数据")
+        logger.warning(f"{model_type} API密钥未设置，使用模拟数据")
         return _mock_ai_recommendations(model_type)
     elif model_type == "deepseek" and not DEEPSEEK_API_KEY:
-        logger.warning("DeepSeek API密钥未设置，使用模拟数据")
+        logger.warning(f"{model_type} API密钥未设置，使用模拟数据")
         return _mock_ai_recommendations(model_type)
     
-    # 使用实际API
-    logger.info(f"使用{model_type} API生成回答")
-    if model_type == "grok":
-        return _call_grok_api(prompt)
-    elif model_type == "deepseek":
-        return _call_deepseek_api(prompt)
-    else:
-        raise ValueError(f"不支持的模型类型: {model_type}")
+    # 初始化重试计数
+    retry_count = 0
+    last_error = None
+    
+    while retry_count < max_retries:
+        try:
+            # 根据模型类型选择不同的API调用函数
+            if model_type == "grok":
+                logger.info(f"尝试调用Grok API（尝试 {retry_count + 1}/{max_retries}）")
+                # 选择要使用的API函数
+                api_func = _call_grok_api
+                api_url = GROK_API_URL
+            else:  # deepseek
+                logger.info(f"尝试调用DeepSeek API（尝试 {retry_count + 1}/{max_retries}）")
+                api_func = _call_deepseek_api
+                api_url = DEEPSEEK_API_URL
+            
+            # 发送请求前检查API端点是否可达
+            try:
+                # 使用HEAD请求快速检查API端点是否可达
+                head_response = requests.head(api_url, timeout=5)
+                logger.info(f"{model_type} API端点状态码: {head_response.status_code}")
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"{model_type} API端点不可达: {str(e)}")
+                # 如果端点不可达，直接进入下一次重试
+                retry_count += 1
+                last_error = f"API端点不可达: {str(e)}"
+                
+                if retry_count < max_retries:
+                    logger.info(f"等待2秒后重试...")
+                    time.sleep(2)
+                continue
+            
+            # 调用相应的API函数，设置更长的超时时间
+            response = api_func(prompt)
+            
+            # 检查响应是否包含错误
+            if isinstance(response, list) and len(response) > 0 and "error" in response[0]:
+                error_msg = response[0].get("error", "未知错误")
+                logger.warning(f"{model_type} API调用返回错误: {error_msg}")
+                
+                # 某些错误是不需要重试的（如认证错误）
+                if "API密钥未设置" in error_msg or "认证失败" in error_msg or "无效的API密钥" in error_msg:
+                    logger.error(f"{model_type} API认证错误，不再重试: {error_msg}")
+                    return response
+                
+                # 对于其他错误，继续重试
+                retry_count += 1
+                last_error = error_msg
+                
+                if retry_count < max_retries:
+                    logger.info(f"等待2秒后重试...")
+                    time.sleep(2)
+                continue
+            
+            # 如果没有错误，返回结果
+            logger.info(f"成功获取{model_type} API响应")
+            return response
+            
+        except Exception as e:
+            retry_count += 1
+            last_error = str(e)
+            logger.warning(f"{model_type} API调用异常 (尝试 {retry_count}/{max_retries}): {last_error}")
+            
+            if retry_count < max_retries:
+                # 增加等待时间，避免频繁请求
+                wait_time = 2 * retry_count  # 渐进式增加等待时间
+                logger.info(f"等待{wait_time}秒后重试...")
+                time.sleep(wait_time)
+    
+    # 如果所有重试都失败，返回错误信息
+    logger.error(f"{model_type} API在{max_retries}次尝试后仍然失败: {last_error}")
+    return [{"error": f"API调用在{max_retries}次尝试后失败: {last_error}", "content": "模型调用失败，请稍后再试。"}]
 
 def _call_grok_api(prompt):
     """调用Grok API"""
@@ -758,7 +926,7 @@ def _call_grok_api(prompt):
     }
     
     data = {
-        "model": "grok-3-latest",
+        "model": "grok-3-fast-beta",
         "messages": [
             {"role": "system", "content": "你是一个专业的教育助手，帮助学生根据错题记录推荐适合的练习题。请始终以JSON格式回复，确保回复内容可以被json.loads()函数解析。"},
             {"role": "user", "content": prompt}
@@ -768,7 +936,7 @@ def _call_grok_api(prompt):
     }
     
     try:
-        response = requests.post(GROK_API_URL, headers=headers, json=data, timeout=30)
+        response = requests.post(GROK_API_URL, headers=headers, json=data, timeout=60)
         
         if response.status_code == 200:
             response_data = response.json()
@@ -892,69 +1060,69 @@ def _call_deepseek_api(prompt):
         logger.error(f"DeepSeek API调用出错: {str(e)}")
         return [{"error": f"API调用异常: {str(e)}"}]
 
-def _mock_ai_recommendations(model_type="grok"):
-    """提供模拟的AI推荐数据（开发/测试环境使用）"""
-    # 根据不同模型提供略有差异的模拟数据，便于区分
-    common_recommendations = [
-        {
-            "content": "设计一个算法，实现链表的反转操作。要求时间复杂度为O(n)，空间复杂度为O(1)。",
-            "type": "综合题",
-            "difficulty": "中等",
-            "knowledge_points": ["链表", "指针操作", "算法复杂度"],
-            "reason": "学生在链表操作相关题目上存在困难，这道题可以帮助巩固链表基本操作和指针概念。"
-        },
-        {
-            "content": "请分析快速排序算法的平均时间复杂度和最坏时间复杂度，并解释为什么存在差异。",
-            "type": "综合题",
-            "difficulty": "中等",
-            "knowledge_points": ["排序算法", "算法复杂度分析", "分治策略"],
-            "reason": "学生在算法复杂度分析方面有欠缺，这道题有助于加深对复杂度分析的理解。"
-        },
-        {
-            "content": "以下哪种数据结构适合实现优先队列？\nA. 数组\nB. 链表\nC. 堆\nD. 栈",
-            "type": "单选题",
-            "difficulty": "简单",
-            "knowledge_points": ["数据结构", "优先队列", "堆"],
-            "reason": "学生在数据结构选择题上有失误，这道题可以帮助理解不同数据结构的应用场景。"
-        }
-    ]
+# def _mock_ai_recommendations(model_type="grok"):
+#     """提供模拟的AI推荐数据（开发/测试环境使用）"""
+#     # 根据不同模型提供略有差异的模拟数据，便于区分
+#     common_recommendations = [
+#         {
+#             "content": "设计一个算法，实现链表的反转操作。要求时间复杂度为O(n)，空间复杂度为O(1)。",
+#             "type": "综合题",
+#             "difficulty": "中等",
+#             "knowledge_points": ["链表", "指针操作", "算法复杂度"],
+#             "reason": "学生在链表操作相关题目上存在困难，这道题可以帮助巩固链表基本操作和指针概念。"
+#         },
+#         {
+#             "content": "请分析快速排序算法的平均时间复杂度和最坏时间复杂度，并解释为什么存在差异。",
+#             "type": "综合题",
+#             "difficulty": "中等",
+#             "knowledge_points": ["排序算法", "算法复杂度分析", "分治策略"],
+#             "reason": "学生在算法复杂度分析方面有欠缺，这道题有助于加深对复杂度分析的理解。"
+#         },
+#         {
+#             "content": "以下哪种数据结构适合实现优先队列？\nA. 数组\nB. 链表\nC. 堆\nD. 栈",
+#             "type": "单选题",
+#             "difficulty": "简单",
+#             "knowledge_points": ["数据结构", "优先队列", "堆"],
+#             "reason": "学生在数据结构选择题上有失误，这道题可以帮助理解不同数据结构的应用场景。"
+#         }
+#     ]
     
-    if model_type == "grok":
-        grok_specific = [
-            {
-                "content": "给定一棵二叉树，编写算法求树的最大深度。",
-                "type": "综合题",
-                "difficulty": "简单",
-                "knowledge_points": ["二叉树", "递归", "深度优先搜索"],
-                "reason": "学生在树相关算法上存在困难，这道基础题有助于巩固树的遍历和递归概念。"
-            },
-            {
-                "content": "以下关于哈希表的描述，正确的是：\nA. 哈希表的插入和查找操作平均时间复杂度为O(n)\nB. 哈希表不存在冲突问题\nC. 哈希表的负载因子不影响性能\nD. 哈希表的平均查找时间复杂度为O(1)",
-                "type": "单选题",
-                "difficulty": "中等",
-                "knowledge_points": ["哈希表", "数据结构", "算法复杂度"],
-                "reason": "学生对数据结构的性能特性理解不足，这道题可以帮助加深对哈希表性能特点的理解。"
-            }
-        ]
-        return common_recommendations + grok_specific
-    else:  # deepseek
-        deepseek_specific = [
-            {
-                "content": "实现一个算法解决背包问题（Knapsack Problem），给定n个物品，每个物品有重量和价值，在总重量不超过W的情况下，如何选择物品使总价值最大？",
-                "type": "综合题",
-                "difficulty": "困难",
-                "knowledge_points": ["动态规划", "贪心算法", "背包问题"],
-                "reason": "学生在算法设计类问题上表现较弱，这道题可以培养系统性解决复杂问题的能力。"
-            },
-            {
-                "content": "下列关于B树和B+树的说法，错误的是：\nA. B+树只在叶子节点存储数据\nB. B树适合做文件系统\nC. B+树的查询稳定性优于B树\nD. B树比B+树支持更高效的范围查询",
-                "type": "单选题",
-                "difficulty": "中等",
-                "knowledge_points": ["树结构", "数据库索引", "查询优化"],
-                "reason": "学生对高级数据结构理解不足，这道题有助于理解不同树结构的应用场景和优缺点。"
-            }
-        ]
-        return common_recommendations + deepseek_specific
+#     if model_type == "grok":
+#         grok_specific = [
+#             {
+#                 "content": "给定一棵二叉树，编写算法求树的最大深度。",
+#                 "type": "综合题",
+#                 "difficulty": "简单",
+#                 "knowledge_points": ["二叉树", "递归", "深度优先搜索"],
+#                 "reason": "学生在树相关算法上存在困难，这道基础题有助于巩固树的遍历和递归概念。"
+#             },
+#             {
+#                 "content": "以下关于哈希表的描述，正确的是：\nA. 哈希表的插入和查找操作平均时间复杂度为O(n)\nB. 哈希表不存在冲突问题\nC. 哈希表的负载因子不影响性能\nD. 哈希表的平均查找时间复杂度为O(1)",
+#                 "type": "单选题",
+#                 "difficulty": "中等",
+#                 "knowledge_points": ["哈希表", "数据结构", "算法复杂度"],
+#                 "reason": "学生对数据结构的性能特性理解不足，这道题可以帮助加深对哈希表性能特点的理解。"
+#             }
+#         ]
+#         return common_recommendations + grok_specific
+#     else:  # deepseek
+#         deepseek_specific = [
+#             {
+#                 "content": "实现一个算法解决背包问题（Knapsack Problem），给定n个物品，每个物品有重量和价值，在总重量不超过W的情况下，如何选择物品使总价值最大？",
+#                 "type": "综合题",
+#                 "difficulty": "困难",
+#                 "knowledge_points": ["动态规划", "贪心算法", "背包问题"],
+#                 "reason": "学生在算法设计类问题上表现较弱，这道题可以培养系统性解决复杂问题的能力。"
+#             },
+#             {
+#                 "content": "下列关于B树和B+树的说法，错误的是：\nA. B+树只在叶子节点存储数据\nB. B树适合做文件系统\nC. B+树的查询稳定性优于B树\nD. B树比B+树支持更高效的范围查询",
+#                 "type": "单选题",
+#                 "difficulty": "中等",
+#                 "knowledge_points": ["树结构", "数据库索引", "查询优化"],
+#                 "reason": "学生对高级数据结构理解不足，这道题有助于理解不同树结构的应用场景和优缺点。"
+#             }
+#         ]
+#         return common_recommendations + deepseek_specific
 
 @login_required
 def extract_mistake_knowledge_points(request):
@@ -1075,7 +1243,7 @@ def _extract_knowledge_from_mistakes(mistakes):
     # 调用大模型API获取知识点
     try:
         # 使用当前设置的默认模型
-        extracted_knowledge = _call_large_language_model(prompt, CURRENT_MODEL)
+        extracted_knowledge = _call_large_language_model_with_retry(prompt, CURRENT_MODEL)
         return extracted_knowledge
     except Exception as e:
         logger.error(f"调用大模型提取知识点时出错: {str(e)}")
@@ -1117,9 +1285,288 @@ def _generate_exercises_from_knowledge(knowledge_points):
     # 调用大模型API生成练习题
     try:
         # 使用当前设置的默认模型
-        generated_exercises = _call_large_language_model(prompt, CURRENT_MODEL)
+        generated_exercises = _call_large_language_model_with_retry(prompt, CURRENT_MODEL)
         return generated_exercises
     except Exception as e:
         logger.error(f"调用大模型生成练习题时出错: {str(e)}")
         # 如果API调用失败，返回空列表
         return []
+
+def _post_process_recommendations(recommendations):
+    """处理和标准化推荐结果，确保每个题目都有合适的选项和答案"""
+    processed_items = []
+    
+    for item in recommendations:
+        # 如果item是错误消息，直接添加并跳过
+        if 'error' in item:
+            processed_items.append(item)
+            continue
+            
+        # 创建新的处理过的项目
+        processed_item = item.copy() if isinstance(item, dict) else {}
+        
+        # 确保基本字段存在
+        if not isinstance(processed_item, dict):
+            processed_item = {"content": str(processed_item)}
+        
+        # 设置默认值
+        if 'content' not in processed_item or not processed_item['content']:
+            processed_item['content'] = "无题目内容"
+        
+        if 'type' not in processed_item or not processed_item['type']:
+            # 尝试从内容推断题目类型
+            content = processed_item['content'].lower()
+            # 检测单选题的特征
+            single_choice_patterns = [
+                '单选题',
+                '单项选择题',
+                '以下选项中.*?正确的是',
+                '下列.*?正确的是',
+                '下列.*?最合适的是',
+                '下列.*?哪一项',
+                '下列.*?哪一个',
+                '下列.*?哪一种',
+                '以下.*?哪个',
+            ]
+            
+            # 检测多选题的特征
+            multiple_choice_patterns = [
+                '多选题',
+                '多项选择题',
+                '以下选项中.*?正确的有',
+                '下列.*?正确的有',
+                '下列.*?哪些',
+                '以下.*?哪些'
+            ]
+            
+            is_single_choice = False
+            is_multiple_choice = False
+            
+            import re
+            # 检查是否是单选题
+            for pattern in single_choice_patterns:
+                if re.search(pattern, content):
+                    is_single_choice = True
+                    break
+                    
+            # 检查是否是多选题
+            for pattern in multiple_choice_patterns:
+                if re.search(pattern, content):
+                    is_multiple_choice = True
+                    break
+            
+            # 如果有选项说明符号但没有明确的类型指示，默认为单选题
+            option_indicators = [r'[Aa][.、）)]', r'（[Aa]）', r'\([Aa]\)', r'选项[Aa][：:]']
+            has_options = False
+            for pattern in option_indicators:
+                if re.search(pattern, processed_item['content']):
+                    has_options = True
+                    break
+            
+            # 确定最终类型
+            if is_multiple_choice:
+                processed_item['type'] = '多选题'
+            elif is_single_choice or has_options:
+                processed_item['type'] = '单选题'
+            else:
+                processed_item['type'] = '综合题'
+        
+        # 处理选项
+        if 'options' not in processed_item or not processed_item['options']:
+            # 尝试从内容中提取选项
+            content = processed_item['content']
+            options = {}
+            
+            # 多种可能的选项格式
+            option_patterns = [
+                r'([A-D])[.、）)](.*?)(?=(?:[A-D][.、）)])|$)',  # A. 选项内容
+                r'（([A-D])）(.*?)(?=(?:（[A-D]）)|$)',             # （A）选项内容
+                r'\(([A-D])\)(.*?)(?=(?:\([A-D]\))|$)',            # (A)选项内容
+                r'选项([A-D])[：:](.*?)(?=(?:选项[A-D][：:])|$)'    # 选项A：选项内容
+            ]
+            
+            import re
+            options_found = False
+            
+            for pattern in option_patterns:
+                matches = re.findall(pattern, content)
+                if matches:
+                    for key, value in matches:
+                        options[key.strip()] = value.strip()
+                    options_found = True
+                    break
+            
+            # 如果找到选项，将其从题目内容中移除以避免重复
+            if options_found:
+                # 尝试找到选项开始的位置
+                option_start_patterns = [
+                    r'[A-D][.、）)]',  # A.
+                    r'（[A-D]）',      # （A）
+                    r'\([A-D]\)',      # (A)
+                    r'选项[A-D][：:]'   # 选项A：
+                ]
+                
+                for pattern in option_start_patterns:
+                    match = re.search(pattern, content)
+                    if match:
+                        # 如果找到，截取到选项开始前的内容
+                        processed_item['content'] = content[:match.start()].strip()
+                        break
+            
+            # 如果找到了选项或者题目类型是选择题，添加选项
+            if options or processed_item['type'] in ['单选题', '多选题']:
+                # 如果没有足够的选项（至少有四个ABCD），补充默认选项
+                for key in ['A', 'B', 'C', 'D']:
+                    if key not in options:
+                        options[key] = f'选项{key}'
+                
+                processed_item['options'] = options
+        
+        # 确保答案格式正确
+        if 'answer' not in processed_item or not processed_item['answer']:
+            if processed_item['type'] == '单选题':
+                processed_item['answer'] = 'A'  # 默认答案
+            elif processed_item['type'] == '多选题':
+                processed_item['answer'] = 'A,B'  # 默认答案
+            else:
+                processed_item['answer'] = '略'
+        
+        # 确保有知识点
+        if 'knowledge_points' not in processed_item or not processed_item['knowledge_points']:
+            processed_item['knowledge_points'] = ['未指定知识点']
+        elif isinstance(processed_item['knowledge_points'], str):
+            # 如果知识点是字符串，转换为列表
+            processed_item['knowledge_points'] = [processed_item['knowledge_points']]
+        
+        # 确保有解析
+        if 'explanation' not in processed_item or not processed_item['explanation']:
+            processed_item['explanation'] = '无解析'
+        
+        # 确保有难度
+        if 'difficulty' not in processed_item or not processed_item['difficulty']:
+            processed_item['difficulty'] = '中等'
+        
+        # 确保有推荐理由
+        if 'reason' not in processed_item or not processed_item['reason']:
+            processed_item['reason'] = '基于您的学习情况推荐'
+        
+        processed_items.append(processed_item)
+    
+    return processed_items
+
+@csrf_exempt  # 临时添加CSRF豁免
+@require_http_methods(["POST"])
+def submit_ai_exercise_attempt(request):
+    """处理用户对AI生成习题的答题提交"""
+    try:
+        # 解析前端提交的JSON数据
+        data = json.loads(request.body)
+        exercise_id = data.get('exercise_id')
+        user_answer = data.get('user_answer', '')
+        
+        # 如果没有传入习题ID，返回错误
+        if not exercise_id:
+            return JsonResponse({
+                'status': 'error',
+                'message': '缺少习题ID'
+            }, status=400)
+        
+        # 获取习题信息
+        try:
+            exercise = AIGeneratedExercise.objects.get(id=exercise_id, user=request.user)
+        except AIGeneratedExercise.DoesNotExist:
+            return JsonResponse({
+                'status': 'error',
+                'message': '习题不存在或无权访问'
+            }, status=404)
+        
+        # 判断答案是否正确
+        is_correct = False
+        
+        # 处理不同类型题目的答案比对
+        if exercise.type == 'single' or exercise.type == 'multiple':
+            # 单选和多选题比对
+            # 注意：答案格式可能是"A"或"A,B,C"
+            correct_answers = exercise.answer.replace(' ', '').split(',')
+            user_answers = user_answer.replace(' ', '').split(',')
+            
+            # 排序后比较，忽略顺序差异
+            is_correct = sorted(correct_answers) == sorted(user_answers)
+        else:
+            # 综合题直接比对（这里可以根据需要实现更复杂的评分逻辑）
+            is_correct = user_answer.strip() == exercise.answer.strip()
+        
+        # 记录用户尝试
+        attempt = AIExerciseAttempt.objects.create(
+            user=request.user,
+            exercise=exercise,
+            is_correct=is_correct,
+            user_answer=user_answer
+        )
+        
+        # 构建响应
+        response_data = {
+            'status': 'success',
+            'is_correct': is_correct,
+            'correct_answer': exercise.answer,
+            'explanation': exercise.explanation
+        }
+        
+        # 如果答案错误，可能需要添加到错题集
+        if not is_correct:
+            # 这里可以根据需要实现错题集功能
+            pass
+        
+        return JsonResponse(response_data)
+    
+    except json.JSONDecodeError:
+        return JsonResponse({
+            'status': 'error',
+            'message': 'JSON格式错误'
+        }, status=400)
+    
+    except Exception as e:
+        logger.error(f"提交AI习题尝试时出错: {str(e)}")
+        return JsonResponse({
+            'status': 'error',
+            'message': f'服务器错误: {str(e)}'
+        }, status=500)
+
+@login_required
+def get_ai_exercise_detail(request, exercise_id):
+    """获取AI生成习题的详细信息"""
+    try:
+        # 获取习题信息
+        exercise = AIGeneratedExercise.objects.get(id=exercise_id, user=request.user)
+        
+        # 构建响应数据
+        response_data = {
+            'id': exercise.id,
+            'content': exercise.content,
+            'type': exercise.type,
+            'options': exercise.options,
+            'answer': exercise.answer,
+            'explanation': exercise.explanation,
+            'difficulty': exercise.difficulty,
+            'knowledge_points': exercise.knowledge_points,
+            'reason': exercise.reason
+        }
+        
+        return JsonResponse(response_data)
+    except AIGeneratedExercise.DoesNotExist:
+        return JsonResponse({'error': '习题不存在或无权访问'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+def _call_large_language_model(prompt, model_type="grok"):
+    """调用大语言模型API获取推荐（兼容性函数，内部使用重试机制）"""
+    # 使用实际API
+    logger.info(f"使用{model_type} API生成回答")
+    if model_type == "grok":
+        # 调用带重试机制的函数
+        return _call_large_language_model_with_retry(prompt, model_type)
+    elif model_type == "deepseek":
+        # 调用带重试机制的函数
+        return _call_large_language_model_with_retry(prompt, model_type)
+    else:
+        raise ValueError(f"不支持的模型类型: {model_type}")
