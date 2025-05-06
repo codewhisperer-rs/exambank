@@ -1196,7 +1196,7 @@ def extract_mistake_knowledge_points(request):
                     raise ValueError("请至少选择一个知识点")
                 
                 # 根据选择的知识点生成练习题
-                generated_exercises = _generate_exercises_from_knowledge(selected_knowledge)
+                generated_exercises = _generate_exercises_from_knowledge(selected_knowledge, request.user)
                 
                 # 提取所有错题的知识点
                 extracted_knowledge = _extract_knowledge_from_mistakes(mistakes)
@@ -1269,8 +1269,8 @@ def _extract_knowledge_from_mistakes(mistakes):
         # 如果API调用失败，返回空列表
         return []
 
-def _generate_exercises_from_knowledge(knowledge_points):
-    """根据知识点生成相关练习题"""
+def _generate_exercises_from_knowledge(knowledge_points, user=None):
+    """根据知识点生成相关练习题，并保存到数据库"""
     if not knowledge_points:
         return []
     
@@ -1305,6 +1305,51 @@ def _generate_exercises_from_knowledge(knowledge_points):
     try:
         # 使用当前设置的默认模型
         generated_exercises = _call_large_language_model_with_retry(prompt, CURRENT_MODEL)
+        
+        # 如果提供了用户，则将生成的习题保存到数据库
+        if user and isinstance(generated_exercises, list):
+            saved_exercises = []
+            for item in generated_exercises:
+                if isinstance(item, dict) and 'content' in item:
+                    # 确定题目类型
+                    exercise_type = 'single'
+                    if item.get('type') == '多选题' or item.get('type') == 'multiple':
+                        exercise_type = 'multiple'
+                    elif item.get('type') == '综合题':
+                        exercise_type = 'comprehensive'
+                    
+                    # 获取知识点
+                    knowledge_point = item.get('knowledge_point', '')
+                    if not knowledge_point and 'knowledge_points' in item:
+                        knowledge_point = item.get('knowledge_points', '')
+                    
+                    knowledge_points_list = []
+                    if knowledge_point:
+                        if isinstance(knowledge_point, list):
+                            knowledge_points_list = knowledge_point
+                        else:
+                            knowledge_points_list = [knowledge_point]
+                    
+                    # 保存到数据库
+                    ai_exercise = AIGeneratedExercise.objects.create(
+                        user=user,
+                        model_type='knowledge_extraction',  # 标记来源
+                        type=exercise_type,
+                        content=item['content'],
+                        options=item.get('options', {}),
+                        answer=item.get('answer', ''),
+                        explanation=item.get('explanation', ''),
+                        knowledge_points=knowledge_points_list,
+                        reason='基于知识点提取生成',
+                        difficulty='medium'  # 默认中等难度
+                    )
+                    
+                    # 添加数据库ID到返回的习题中，以便前端使用
+                    item['db_id'] = ai_exercise.id
+                    saved_exercises.append(ai_exercise)
+            
+            logger.info(f"已成功保存 {len(saved_exercises)} 道习题到数据库")
+        
         return generated_exercises
     except Exception as e:
         logger.error(f"调用大模型生成练习题时出错: {str(e)}")
@@ -1589,3 +1634,41 @@ def _call_large_language_model(prompt, model_type="grok"):
         return _call_large_language_model_with_retry(prompt, model_type)
     else:
         raise ValueError(f"不支持的模型类型: {model_type}")
+
+@login_required
+def my_ai_exercises(request):
+    """用户的AI习题库 - 显示所有AI生成的习题"""
+    # 获取当前用户的所有AI生成习题
+    ai_exercises = AIGeneratedExercise.objects.filter(
+        user=request.user
+    ).order_by('-created_at')
+    
+    # 按来源/模型类型分组
+    by_model = {}
+    for exercise in ai_exercises:
+        model_type = exercise.model_type
+        if model_type not in by_model:
+            by_model[model_type] = []
+        by_model[model_type].append(exercise)
+    
+    # 获取用户的练习记录
+    attempt_records = AIExerciseAttempt.objects.filter(
+        user=request.user
+    ).order_by('-attempt_time')
+    
+    # 构建尝试记录字典，便于快速查找
+    attempts_by_exercise = {}
+    for attempt in attempt_records:
+        exercise_id = attempt.exercise.id
+        if exercise_id not in attempts_by_exercise:
+            attempts_by_exercise[exercise_id] = []
+        attempts_by_exercise[exercise_id].append(attempt)
+    
+    context = {
+        'ai_exercises': ai_exercises,
+        'by_model': by_model,
+        'attempts_by_exercise': attempts_by_exercise,
+        'total_count': ai_exercises.count()
+    }
+    
+    return render(request, 'courses/my_ai_exercises.html', context)

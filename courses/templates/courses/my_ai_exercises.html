@@ -1,0 +1,255 @@
+{% extends 'courses/base.html' %}
+{% load static %}
+
+{% block title %}AI习题库{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">我的AI习题库 <small class="text-muted">(共{{ total_count }}题)</small></h1>
+    
+    <div class="row">
+        <!-- 左侧：习题列表 -->
+        <div class="col-md-9">
+            {% if ai_exercises %}
+                <!-- 分类标签 -->
+                <ul class="nav nav-tabs mb-3" id="exerciseTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="all-tab" data-bs-toggle="tab" data-bs-target="#all" type="button" role="tab" aria-controls="all" aria-selected="true">
+                            全部习题 ({{ total_count }})
+                        </button>
+                    </li>
+                    {% for model, exercises in by_model.items %}
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="{{ model }}-tab" data-bs-toggle="tab" data-bs-target="#{{ model }}" type="button" role="tab" aria-controls="{{ model }}" aria-selected="false">
+                            {{ model|title }} ({{ exercises|length }})
+                        </button>
+                    </li>
+                    {% endfor %}
+                </ul>
+                
+                <!-- 标签内容 -->
+                <div class="tab-content" id="exercisesTabContent">
+                    <!-- 全部习题 -->
+                    <div class="tab-pane fade show active" id="all" role="tabpanel" aria-labelledby="all-tab">
+                        <div class="accordion accordion-flush" id="allExercisesAccordion">
+                            {% for exercise in ai_exercises %}
+                                {% include 'courses/partials/ai_exercise_item.html' with exercise=exercise counter=forloop.counter %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                    
+                    <!-- 按模型分类 -->
+                    {% for model, exercises in by_model.items %}
+                    <div class="tab-pane fade" id="{{ model }}" role="tabpanel" aria-labelledby="{{ model }}-tab">
+                        <div class="accordion accordion-flush" id="{{ model }}Accordion">
+                            {% for exercise in exercises %}
+                                {% include 'courses/partials/ai_exercise_item.html' with exercise=exercise counter=forloop.counter %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="alert alert-info">
+                    <p>您的AI习题库还是空的。</p>
+                    <p>您可以尝试：</p>
+                    <ul>
+                        <li><a href="{% url 'courses:ai_recommend' %}">获取AI智能推荐习题</a></li>
+                        <li><a href="{% url 'courses:extract_knowledge' %}">从错题中提取知识点并生成习题</a></li>
+                    </ul>
+                </div>
+            {% endif %}
+        </div>
+        
+        <!-- 右侧：使用说明和统计 -->
+        <div class="col-md-3">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">关于AI习题库</h5>
+                </div>
+                <div class="card-body">
+                    <p class="card-text">AI习题库汇集了所有为您生成的个性化习题，包括：</p>
+                    <ul>
+                        <li>基于您错题集的AI推荐习题</li>
+                        <li>从知识点提取生成的习题</li>
+                    </ul>
+                    <p class="card-text">您可以随时练习这些题目，系统会记录您的做题情况。</p>
+                </div>
+            </div>
+            
+            {% if ai_exercises %}
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">习题统计</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="exerciseTypesChart" width="100%" height="120"></canvas>
+                    
+                    <div class="mt-3">
+                        <h6>习题来源分布</h6>
+                        <ul class="list-group">
+                            {% for model, exercises in by_model.items %}
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                {{ model|title }}
+                                <span class="badge bg-primary rounded-pill">{{ exercises|length }}</span>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- 添加隐藏的数据元素，用于将后端数据传递给JavaScript -->
+<div id="exercise-data" style="display: none;" 
+    data-has-exercises="{{ ai_exercises|yesno:'true,false' }}"
+    data-api-url="{% url 'courses:submit_ai_exercise_attempt_api' %}">
+    {% if ai_exercises %}
+    <script type="application/json" id="exercise-types-data">
+    {
+        "single": {{ ai_exercises|filter:"type=single"|length }},
+        "multiple": {{ ai_exercises|filter:"type=multiple"|length }},
+        "comprehensive": {{ ai_exercises|filter:"type=comprehensive"|length }}
+    }
+    </script>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // 获取数据元素
+        const dataElement = document.getElementById('exercise-data');
+        const hasExercises = dataElement.getAttribute('data-has-exercises') === 'true';
+        const apiUrl = dataElement.getAttribute('data-api-url');
+        
+        // 渲染习题类型统计图表
+        if (hasExercises) {
+            // 解析习题类型统计数据
+            const typesDataElement = document.getElementById('exercise-types-data');
+            const typeCounts = JSON.parse(typesDataElement.textContent);
+            
+            const ctx = document.getElementById('exerciseTypesChart').getContext('2d');
+            const myChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['单选题', '多选题', '综合题'],
+                    datasets: [{
+                        data: [typeCounts.single, typeCounts.multiple, typeCounts.comprehensive],
+                        backgroundColor: [
+                            'rgba(54, 162, 235, 0.7)',
+                            'rgba(255, 99, 132, 0.7)',
+                            'rgba(255, 206, 86, 0.7)'
+                        ],
+                        borderColor: [
+                            'rgba(54, 162, 235, 1)',
+                            'rgba(255, 99, 132, 1)',
+                            'rgba(255, 206, 86, 1)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                        },
+                        title: {
+                            display: true,
+                            text: '习题类型分布'
+                        }
+                    }
+                }
+            });
+        }
+        
+        // 处理答题逻辑
+        document.querySelectorAll('.submit-answer').forEach(button => {
+            button.addEventListener('click', function() {
+                const exerciseId = this.getAttribute('data-exercise-id');
+                const form = document.getElementById(`exercise-form-${exerciseId}`);
+                const resultDiv = document.querySelector(`#exercise-${exerciseId} .answer-result`);
+                const type = this.getAttribute('data-type');
+                const correctAnswer = this.getAttribute('data-correct');
+                
+                let userAnswer = '';
+                
+                // 获取用户答案
+                if (type === 'single') {
+                    const selected = form.querySelector('input[type="radio"]:checked');
+                    if (!selected) {
+                        alert('请选择一个选项');
+                        return;
+                    }
+                    userAnswer = selected.value;
+                } else if (type === 'multiple') {
+                    const selected = form.querySelectorAll('input[type="checkbox"]:checked');
+                    if (selected.length === 0) {
+                        alert('请至少选择一个选项');
+                        return;
+                    }
+                    const answers = [];
+                    selected.forEach(input => answers.push(input.value));
+                    userAnswer = answers.sort().join(',');
+                } else {
+                    // 其他题型...
+                    return;
+                }
+                
+                // 比较答案
+                const isCorrect = userAnswer.toUpperCase() === correctAnswer.toUpperCase();
+                
+                // 显示结果
+                resultDiv.style.display = 'block';
+                resultDiv.innerHTML = isCorrect
+                    ? '<div class="alert alert-success"><i class="bi bi-check-circle-fill"></i> 回答正确！</div>'
+                    : `<div class="alert alert-danger"><i class="bi bi-x-circle-fill"></i> 回答错误！正确答案: ${correctAnswer}</div>`;
+                
+                // 显示解析
+                document.querySelector(`#exercise-${exerciseId} .explanation`).style.display = 'block';
+                
+                // 禁用按钮和选项
+                this.disabled = true;
+                form.querySelectorAll('input').forEach(input => input.disabled = true);
+                
+                // 发送结果到服务器
+                const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+                fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({
+                        exercise_id: exerciseId,
+                        user_answer: userAnswer
+                    })
+                })
+                .catch(error => console.error('Error submitting attempt:', error));
+            });
+        });
+        
+        // 查看解析按钮
+        document.querySelectorAll('.view-explanation').forEach(button => {
+            button.addEventListener('click', function() {
+                const exerciseId = this.getAttribute('data-exercise-id');
+                const explanationDiv = document.querySelector(`#exercise-${exerciseId} .explanation`);
+                
+                if (explanationDiv.style.display === 'none') {
+                    explanationDiv.style.display = 'block';
+                    this.textContent = '隐藏解析';
+                } else {
+                    explanationDiv.style.display = 'none';
+                    this.textContent = '查看解析';
+                }
+            });
+        });
+    });
+</script>
+{% endblock %} 
