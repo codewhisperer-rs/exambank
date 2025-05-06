@@ -197,17 +197,17 @@ LOGGING = {
         'django': {
             'handlers': ['console'],
             'level': 'INFO',
-            'propagate': True,
+            'propagate': False,  # 设置为False防止日志向上传播
         },
         'channels': {
             'handlers': ['console'],
             'level': 'INFO',
-            'propagate': True,
+            'propagate': False,  # 设置为False防止日志向上传播
         },
         'courses': {
             'handlers': ['console'],
             'level': 'INFO',
-            'propagate': True,
+            'propagate': False,  # 设置为False防止日志向上传播
         },
     },
     'root': {

@@ -63,9 +63,15 @@
                         <form method="post" class="mt-3">
                             {% csrf_token %}
                             <input type="hidden" name="action" value="extract_knowledge">
-                            <button type="submit" class="btn btn-primary">
+                            <button type="submit" class="btn btn-primary" id="extractKnowledgeBtn">
                                 <i class="bi bi-lightbulb"></i> 提取知识点
                             </button>
+                            <div id="extractionLoading" style="display: none;" class="mt-3">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">加载中...</span>
+                                </div>
+                                <span class="ms-2">正在分析错题并提取知识点，请稍候...</span>
+                            </div>
                         </form>
                     {% else %}
                         <div class="alert alert-info">
@@ -84,7 +90,7 @@
                 <div class="card-body">
                     <p class="card-text">我们从您的错题中提取出以下知识点：</p>
                     
-                    <form method="post">
+                    <form method="post" id="generateExercisesForm">
                         {% csrf_token %}
                         <input type="hidden" name="action" value="generate_exercises">
                         
@@ -105,9 +111,15 @@
                             {% endfor %}
                         </div>
                         
-                        <button type="submit" class="btn btn-success">
+                        <button type="submit" class="btn btn-success" id="generateExercisesBtn">
                             <i class="bi bi-file-earmark-text"></i> 生成相关练习题
                         </button>
+                        <div id="generationLoading" style="display: none;" class="mt-3">
+                            <div class="spinner-border text-success" role="status">
+                                <span class="visually-hidden">加载中...</span>
+                            </div>
+                            <span class="ms-2">正在根据知识点生成练习题，请稍候...</span>
+                        </div>
                     </form>
                 </div>
             </div>
@@ -267,6 +279,32 @@ document.querySelectorAll('.check-answer').forEach(button => {
         // 禁用检查按钮
         this.disabled = true;
     });
+});
+
+// 添加表单提交时的加载指示器
+document.addEventListener('DOMContentLoaded', function() {
+    // 提取知识点表单
+    const extractKnowledgeBtn = document.getElementById('extractKnowledgeBtn');
+    const extractionLoading = document.getElementById('extractionLoading');
+    
+    if (extractKnowledgeBtn && extractionLoading) {
+        extractKnowledgeBtn.closest('form').addEventListener('submit', function() {
+            extractKnowledgeBtn.disabled = true;
+            extractionLoading.style.display = 'block';
+        });
+    }
+    
+    // 生成习题表单
+    const generateExercisesForm = document.getElementById('generateExercisesForm');
+    const generateExercisesBtn = document.getElementById('generateExercisesBtn');
+    const generationLoading = document.getElementById('generationLoading');
+    
+    if (generateExercisesForm && generateExercisesBtn && generationLoading) {
+        generateExercisesForm.addEventListener('submit', function() {
+            generateExercisesBtn.disabled = true;
+            generationLoading.style.display = 'block';
+        });
+    }
 });
 </script>
 {% endblock %} 

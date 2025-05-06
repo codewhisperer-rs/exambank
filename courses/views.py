@@ -1035,12 +1035,28 @@ async def get_ai_exercise_recommendations_async(request):
         # 记录原始返回
         logger.info(f"AI模型返回的原始推荐数: {len(raw_recommendations) if isinstance(raw_recommendations, list) else 'not a list'}")
         
+        # 检查是否有错误信息
+        if isinstance(raw_recommendations, list) and len(raw_recommendations) > 0 and "error" in raw_recommendations[0]:
+            # 模型调用失败，返回错误信息
+            error_message = raw_recommendations[0].get("error", "模型调用失败")
+            logger.error(f"AI模型调用失败: {error_message}")
+            return JsonResponse({
+                'status': 'error',
+                'message': f'生成习题失败: {error_message}',
+                'redirect': None
+            })
+        
         # 处理响应结果 - 将同步函数包装为异步
         processed_results = await sync_to_async(_post_process_recommendations)(raw_recommendations)
         
         # 保存到数据库
         for item in processed_results:
             try:
+                # 跳过包含错误信息的条目
+                if 'error' in item:
+                    logger.warning(f"跳过包含错误信息的推荐条目: {item}")
+                    continue
+                    
                 # 确定关联的书籍，如果有
                 book = None
                 if 'book_title' in item and item['book_title']:
@@ -1492,6 +1508,14 @@ async def _extract_knowledge_from_mistakes_async(mistakes):
     try:
         # 使用当前设置的默认模型
         extracted_knowledge = await _call_large_language_model_with_retry(prompt, CURRENT_MODEL)
+        
+        # 检查是否有错误信息
+        if isinstance(extracted_knowledge, list) and len(extracted_knowledge) > 0 and "error" in extracted_knowledge[0]:
+            # 模型调用失败，记录错误并返回空列表，避免将错误信息当作知识点
+            error_message = extracted_knowledge[0].get("error", "模型调用失败")
+            logger.error(f"从错题中提取知识点失败: {error_message}")
+            return []
+            
         return extracted_knowledge
     except Exception as e:
         logger.error(f"调用大模型提取知识点时出错: {str(e)}")
@@ -1546,6 +1570,13 @@ async def _generate_exercises_from_knowledge_async(knowledge_points, user=None):
         # 使用当前设置的默认模型
         generated_exercises = await _call_large_language_model_with_retry(prompt, CURRENT_MODEL)
         
+        # 检查是否有错误信息
+        if isinstance(generated_exercises, list) and len(generated_exercises) > 0 and "error" in generated_exercises[0]:
+            # 模型调用失败，记录错误并返回空列表，避免将错误信息当作习题
+            error_message = generated_exercises[0].get("error", "模型调用失败")
+            logger.error(f"根据知识点生成习题失败: {error_message}")
+            return []
+        
         # 如果提供了用户，则将生成的习题保存到数据库
         if user and isinstance(generated_exercises, list):
             # 获取所有书籍的字典
@@ -1553,7 +1584,7 @@ async def _generate_exercises_from_knowledge_async(knowledge_points, user=None):
             
             saved_exercises = []
             for item in generated_exercises:
-                if isinstance(item, dict) and 'content' in item:
+                if isinstance(item, dict) and 'content' in item and 'error' not in item:
                     try:
                         # 确定题目类型
                         exercise_type = 'single'
