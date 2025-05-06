@@ -1,0 +1,182 @@
+{% extends "courses/base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6">
+    <div class="card mt-4">
+      <div class="card-header">
+        <h2 class="text-center">用户注册</h2>
+      </div>
+      <div class="card-body">
+        <form id="register-form" method="post">
+          {% csrf_token %}
+          
+          <!-- 注册状态提示 -->
+          <div id="registration-status" style="display:none;"></div>
+          
+          <!-- 加载指示器 -->
+          <div id="loading-indicator" class="text-center my-3" style="display:none;">
+            <div class="spinner-border text-primary" role="status">
+              <span class="visually-hidden">处理中...</span>
+            </div>
+            <p>正在处理您的注册请求...</p>
+          </div>
+          
+          {% if form.errors %}
+          <div class="alert alert-danger">
+            <strong>注册失败</strong>
+            <ul>
+              {% for field in form %}
+                {% for error in field.errors %}
+                  <li>{{ field.label }}: {{ error }}</li>
+                {% endfor %}
+              {% endfor %}
+              {% for error in form.non_field_errors %}
+                <li>{{ error }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+          
+          <div class="mb-3">
+            <label for="id_username" class="form-label">用户名</label>
+            <input type="text" name="username" id="id_username" class="form-control" required>
+            <div class="form-text">必填。150个字符或者更少。包含字母，数字和仅有的@/./+/-/_符号。</div>
+          </div>
+          
+          <div class="mb-3">
+            <label for="id_email" class="form-label">电子邮件</label>
+            <input type="email" name="email" id="id_email" class="form-control" required>
+          </div>
+          
+          <div class="mb-3">
+            <label for="id_password1" class="form-label">密码</label>
+            <input type="password" name="password1" id="id_password1" class="form-control" required>
+            <div class="form-text">
+              <ul>
+                <li>密码不能与用户名太相似。</li>
+                <li>密码必须至少有8个字符。</li>
+                <li>密码不能是常见的密码。</li>
+                <li>密码不能全是数字。</li>
+              </ul>
+            </div>
+          </div>
+          
+          <div class="mb-3">
+            <label for="id_password2" class="form-label">确认密码</label>
+            <input type="password" name="password2" id="id_password2" class="form-control" required>
+            <div class="form-text">再次输入密码，确保您的密码输入正确。</div>
+          </div>
+          
+          <div class="d-grid gap-2">
+            <button type="submit" id="register-btn" class="btn btn-primary">注册</button>
+          </div>
+        </form>
+        
+        <div class="mt-3 text-center">
+          <p>已有账户？<a href="{% url 'login' %}">登录</a></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 添加JavaScript处理异步注册 -->
+{% block extra_js %}
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('register-form');
+    const statusDiv = document.getElementById('registration-status');
+    const loadingIndicator = document.getElementById('loading-indicator');
+    const registerBtn = document.getElementById('register-btn');
+    
+    // 获取CSRF令牌
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    
+    form.addEventListener('submit', function(e) {
+      e.preventDefault(); // 阻止表单默认提交
+      
+      // 清除之前的状态信息
+      statusDiv.innerHTML = '';
+      statusDiv.style.display = 'none';
+      statusDiv.className = '';
+      
+      // 显示加载指示器
+      loadingIndicator.style.display = 'block';
+      
+      // 禁用提交按钮
+      registerBtn.disabled = true;
+      
+      // 构建表单数据
+      const formData = new FormData(form);
+      
+      // 发送异步请求
+      fetch('{% url "register" %}', {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-CSRFToken': csrfToken
+        },
+        credentials: 'same-origin'
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('网络响应不正常');
+        }
+        return response.json();
+      })
+      .then(data => {
+        // 隐藏加载指示器
+        loadingIndicator.style.display = 'none';
+        
+        if (data.success) {
+          // 注册成功
+          statusDiv.className = 'alert alert-success';
+          statusDiv.innerHTML = '<strong>注册成功！</strong> 正在跳转到登录页面...';
+          statusDiv.style.display = 'block';
+          
+          // 延迟跳转
+          setTimeout(function() {
+            window.location.href = data.redirect_url || '{% url "login" %}';
+          }, 1500);
+        } else {
+          // 显示错误信息
+          statusDiv.className = 'alert alert-danger';
+          let errorHtml = '<strong>注册失败</strong><ul>';
+          
+          if (data.errors) {
+            for (const field in data.errors) {
+              data.errors[field].forEach(error => {
+                errorHtml += `<li>${field}: ${error}</li>`;
+              });
+            }
+          } else if (data.message) {
+            errorHtml += `<li>${data.message}</li>`;
+          } else {
+            errorHtml += '<li>注册过程中发生未知错误</li>';
+          }
+          
+          errorHtml += '</ul>';
+          statusDiv.innerHTML = errorHtml;
+          statusDiv.style.display = 'block';
+          
+          // 重新启用提交按钮
+          registerBtn.disabled = false;
+        }
+      })
+      .catch(error => {
+        // 处理网络错误
+        loadingIndicator.style.display = 'none';
+        statusDiv.className = 'alert alert-danger';
+        statusDiv.innerHTML = `<strong>请求错误</strong><p>${error.message}</p>`;
+        statusDiv.style.display = 'block';
+        
+        // 重新启用提交按钮
+        registerBtn.disabled = false;
+      });
+    });
+  });
+</script>
+{% endblock %}
+{% endblock %} 

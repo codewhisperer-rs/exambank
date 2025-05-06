@@ -33,6 +33,17 @@
                                            class="btn btn-sm btn-primary">
                                             开始练习
                                         </a>
+                                        {% if exercise.type == 'comprehensive' or exercise.type == '综合应用题' %}
+                                        <button class="btn btn-sm btn-outline-secondary ms-2 view-answer" 
+                                                data-bs-toggle="modal" 
+                                                data-bs-target="#answerModal" 
+                                                data-exercise-id="{{ exercise.id }}"
+                                                data-exercise-title="{{ exercise.section.title }} - 题{{ exercise.number }}"
+                                                data-exercise-answer="{{ exercise.answer }}"
+                                                data-exercise-explanation="{{ exercise.explanation }}">
+                                            查看答案
+                                        </button>
+                                        {% endif %}
                                     </small>
                                 </div>
                             {% endfor %}
@@ -91,4 +102,52 @@
         </div>
     </div>
 </div>
+<!-- 答案查看模态框 -->
+<div class="modal fade" id="answerModal" tabindex="-1" aria-labelledby="answerModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="answerModalLabel">习题答案与解析</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <h6 class="mb-3" id="modalExerciseTitle"></h6>
+                <div class="mb-3">
+                    <h6>答案：</h6>
+                    <div id="modalExerciseAnswer" class="p-2 bg-light rounded"></div>
+                </div>
+                <div>
+                    <h6>解析：</h6>
+                    <div id="modalExerciseExplanation" class="p-2 bg-light rounded"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // 处理查看答案按钮点击事件
+        const answerModal = document.getElementById('answerModal');
+        if (answerModal) {
+            answerModal.addEventListener('show.bs.modal', function(event) {
+                const button = event.relatedTarget;
+                const exerciseId = button.getAttribute('data-exercise-id');
+                const exerciseTitle = button.getAttribute('data-exercise-title');
+                const exerciseAnswer = button.getAttribute('data-exercise-answer') || '未提供答案';
+                const exerciseExplanation = button.getAttribute('data-exercise-explanation') || '未提供解析';
+                
+                // 更新模态框内容
+                document.getElementById('modalExerciseTitle').textContent = exerciseTitle;
+                document.getElementById('modalExerciseAnswer').textContent = exerciseAnswer;
+                document.getElementById('modalExerciseExplanation').innerHTML = exerciseExplanation;
+            });
+        }
+    });
+</script>
+{% endblock %}
 {% endblock %} 

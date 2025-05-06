@@ -14,6 +14,10 @@ from django.utils import timezone
 import markdown
 import re
 import html
+from django.urls import reverse_lazy
+from django.contrib.auth import login
+from django.contrib import messages
+from .forms import RegisterForm
 
 # 尝试导入markdownify，如果失败则提供一个简单的替代函数
 try:
@@ -2105,3 +2109,44 @@ def knowledge_graph(request):
     }
     
     return render(request, 'courses/knowledge_graph.html', context)
+
+# 添加用户注册视图函数
+def register_view(request):
+    """用户注册视图，支持异步请求"""
+    if request.method == 'POST':
+        form = RegisterForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            login(request, user)  # 注册后自动登录
+            
+            # 检查是否是AJAX请求
+            is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+            
+            if is_ajax:
+                # 如果是AJAX请求，返回JSON响应
+                return JsonResponse({
+                    'success': True,
+                    'message': '注册成功',
+                    'redirect_url': reverse_lazy('courses:index')
+                })
+            else:
+                # 常规请求处理
+                messages.success(request, '注册成功')
+                return redirect('courses:index')
+        else:
+            # 表单验证失败
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                # 返回JSON格式的错误信息
+                errors = {}
+                for field, error_list in form.errors.items():
+                    errors[field] = [str(error) for error in error_list]
+                
+                return JsonResponse({
+                    'success': False,
+                    'errors': errors,
+                    'message': '请修正表单中的错误'
+                }, status=400)
+    else:
+        form = RegisterForm()
+    
+    return render(request, 'courses/register.html', {'form': form})

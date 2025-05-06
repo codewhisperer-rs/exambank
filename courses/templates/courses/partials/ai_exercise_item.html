@@ -54,6 +54,16 @@
                         </button>
                     </div>
                 </form>
+            {% else %}
+                <!-- 综合题查看答案按钮 -->
+                {% if exercise.type == 'comprehensive' or exercise.type == '综合应用题' %}
+                <div class="mt-3">
+                    <button type="button" class="btn btn-outline-primary btn-sm view-explanation" 
+                            data-exercise-id="{{ exercise.id }}">
+                        查看答案与解析
+                    </button>
+                </div>
+                {% endif %}
             {% endif %}
             
             <!-- 答题结果显示区域 -->
@@ -68,7 +78,7 @@
                     <div class="card-body arithmatex">
                         <div class="mb-2">
                             <strong>正确答案：</strong> 
-                            <span class="badge bg-success">{{ exercise.answer }}</span>
+                            <span>{{ exercise.answer }}</span>
                         </div>
                         {% if exercise.explanation %}
                             <div>{{ exercise.explanation|safe }}</div>

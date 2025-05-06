@@ -103,6 +103,18 @@
             display: block;
             margin: 10px auto;
         }
+        /* 让退出按钮看起来像普通链接 */
+        .btn-link.nav-link {
+            padding: 0.5rem 1rem;
+            background: none;
+            border: none;
+            text-decoration: none;
+            color: rgba(0,0,0,.55);
+            cursor: pointer;
+        }
+        .btn-link.nav-link:hover {
+            color: rgba(0,0,0,.7);
+        }
     </style>
 </head>
 <body>
@@ -154,14 +166,17 @@
                         <span class="nav-link">您好，{{ user.username }}</span>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#">退出</a>
+                        <form method="post" action="{% url 'logout' %}" class="d-inline">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-link nav-link">退出</button>
+                        </form>
                     </li>
                     {% else %}
                     <li class="nav-item">
-                        <a class="nav-link" href="#">登录</a>
+                        <a class="nav-link" href="{% url 'login' %}">登录</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#">注册</a>
+                        <a class="nav-link" href="{% url 'register' %}">注册</a>
                     </li>
                     {% endif %}
                 </ul>

@@ -626,20 +626,41 @@ class Command(BaseCommand):
                             str(item_path) # Pass directory path as string
                         )
 
-                        # Determine chapter title from first Hx line or filename
-                        first_line = original_introduction_content.split('\n', 1)[0].strip()
-                        title_match = re.match(r'^#+\s*(.*)', first_line)
-                        if title_match:
-                            chapter_title = title_match.group(1).strip()
-                            logger.info(f"          Chapter title from Hx: '{chapter_title}'")
-                        else: # Fallback title extraction from filename if first line is not a header
+                        # 确定章节标题，优先使用有意义的文字描述而非章节编号
+                        # 从内容中查找有意义的标题（不要仅仅是"第X章"这样的格式）
+                        chapter_title = f"第{chapter_number}章" # 默认值
+                        
+                        # 尝试从前几行中找到最合适的标题
+                        lines = original_introduction_content.split('\n')
+                        for line in lines[:5]:  # 检查前5行
+                            line = line.strip()
+                            if not line:
+                                continue
+                                
+                            # 匹配markdown标题行
+                            title_match = re.match(r'^#+\s*(.*)', line)
+                            if title_match:
+                                candidate = title_match.group(1).strip()
+                                # 排除只有"第X章"的标题
+                                if not re.match(r'^第\s*\d+\s*章$', candidate):
+                                    chapter_title = candidate
+                                    logger.info(f"          找到合适的章节标题: '{chapter_title}'")
+                                    break
+                        
+                        # 如果没找到合适的标题，尝试从文件名提取
+                        if chapter_title == f"第{chapter_number}章":
                             intro_title_match = re.match(r'^\d+\.0_(.+?)\.md$', intro_file_path.name, re.IGNORECASE)
                             if intro_title_match:
-                                chapter_title = intro_title_match.group(1).replace('_', ' ').strip()
-                                logger.info(f"          Chapter title from filename: '{chapter_title}'")
-                            else:
-                                logger.warning(f"          Could not determine chapter title from intro file Hx or filename '{intro_file_path.name}'. Using default.")
-                                chapter_title = f"第{chapter_number}章 章节介绍" # Fallback including "章节介绍"
+                                file_title = intro_title_match.group(1).replace('_', ' ').strip()
+                                # 如果文件名中的标题不是简单的"第X章"格式，则使用它
+                                if not re.match(r'^第\s*\d+\s*章$', file_title):
+                                    chapter_title = file_title
+                                    logger.info(f"          从文件名提取章节标题: '{chapter_title}'")
+                                
+                        # 如果最终标题仍然只是"第X章"，添加"内容"以区分
+                        if re.match(r'^第\s*\d+\s*章$', chapter_title):
+                            chapter_title = f"{chapter_title}内容"
+                            logger.warning(f"          未找到合适的章节标题，使用默认值: '{chapter_title}'")
 
                         # Create/Update Chapter object
                         chapter_obj, created = Chapter.objects.update_or_create(

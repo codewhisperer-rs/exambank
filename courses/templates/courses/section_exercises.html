@@ -330,20 +330,21 @@ document.querySelectorAll('.check-answer').forEach(button => {
                 alert('请至少选择一个选项');
                 return;
             }
-            userAnswer = Array.from(selectedOptions).map(option => option.value);
+            // 多选题答案用逗号连接
+            userAnswer = Array.from(selectedOptions).map(option => option.value).join(',');
         } else {
             // 其他题型处理逻辑
             alert('暂不支持此题型');
             return;
         }
         
-        // 使用WebSocket提交答题记录
-        submitExerciseAttemptViaWebSocket(exerciseId, userAnswer);
+        // 使用HTTP POST提交答题记录，而不是WebSocket
+        submitExerciseAttempt(exerciseId, userAnswer);
     });
 });
 
-// 使用WebSocket提交答题记录
-function submitExerciseAttemptViaWebSocket(exerciseId, userAnswer) {
+// 使用HTTP POST提交答题记录
+function submitExerciseAttempt(exerciseId, userAnswer) {
     // 显示加载指示器
     const loadingIndicator = document.getElementById(`loading-indicator-${exerciseId}`);
     if (loadingIndicator) {
@@ -356,72 +357,52 @@ function submitExerciseAttemptViaWebSocket(exerciseId, userAnswer) {
         submitBtn.disabled = true;
     }
     
-    // 获取或创建WebSocket连接
-    let socket = exerciseSockets[exerciseId];
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-        // 确定WebSocket协议
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const host = window.location.host;
-        const wsUrl = `${protocol}//${host}/ws/exercise/${exerciseId}/`;
+    // 准备请求数据
+    const data = {
+        exercise_id: exerciseId,
+        user_answer: userAnswer
+    };
+    
+    // 发送AJAX请求
+    fetch('/submit_attempt/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        // 处理响应
+        processExerciseResponse(exerciseId, data);
+    })
+    .catch(error => {
+        console.error('Error:', error);
         
-        socket = new WebSocket(wsUrl);
-        exerciseSockets[exerciseId] = socket;
+        // 显示错误信息
+        const resultDiv = document.getElementById(`exercise-result-${exerciseId}`);
+        if (resultDiv) {
+            resultDiv.innerHTML = `
+                <div class="alert alert-danger mt-3">
+                    提交时出错，请稍后再试
+                </div>
+            `;
+        }
         
-        socket.onopen = function(e) {
-            console.log(`WebSocket连接已建立: ${exerciseId}`);
-            
-            // 发送答案提交请求
-            socket.send(JSON.stringify({
-                'action': 'submit_answer',
-                'exercise_id': exerciseId,
-                'user_answer': userAnswer
-            }));
-        };
+        // 隐藏加载指示器
+        if (loadingIndicator) {
+            loadingIndicator.style.display = 'none';
+        }
         
-        socket.onmessage = function(e) {
-            const data = JSON.parse(e.data);
-            processExerciseResponse(exerciseId, data);
-        };
-        
-        socket.onclose = function(e) {
-            console.log(`WebSocket连接已关闭: ${exerciseId}`);
-            delete exerciseSockets[exerciseId];
-        };
-        
-        socket.onerror = function(e) {
-            console.error(`WebSocket错误: ${exerciseId}`, e);
-            
-            // 显示错误信息
-            const resultDiv = document.getElementById(`exercise-result-${exerciseId}`);
-            if (resultDiv) {
-                resultDiv.innerHTML = `
-                    <div class="alert alert-danger mt-3">
-                        连接出错，请稍后再试
-                    </div>
-                `;
-            }
-            
-            // 隐藏加载指示器
-            if (loadingIndicator) {
-                loadingIndicator.style.display = 'none';
-            }
-            
-            // 重新启用提交按钮
-            if (submitBtn) {
-                submitBtn.disabled = false;
-            }
-        };
-    } else {
-        // 如果WebSocket已连接，直接发送
-        socket.send(JSON.stringify({
-            'action': 'submit_answer',
-            'exercise_id': exerciseId,
-            'user_answer': userAnswer
-        }));
-    }
+        // 重新启用提交按钮
+        if (submitBtn) {
+            submitBtn.disabled = false;
+        }
+    });
 }
 
-// 处理习题响应
+// 处理习题响应 - 为选择题修改
 function processExerciseResponse(exerciseId, data) {
     // 隐藏加载指示器
     const loadingIndicator = document.getElementById(`loading-indicator-${exerciseId}`);
@@ -439,36 +420,27 @@ function processExerciseResponse(exerciseId, data) {
     const resultDiv = document.getElementById(`exercise-result-${exerciseId}`);
     if (resultDiv) {
         if (data.status === 'success') {
-            // 成功判分，确保应用markdown-body类以支持Markdown和LaTeX渲染
+            // 高亮显示正确和错误的选项
+            highlightOptions(exerciseId, data.correct_answer);
+            
+            // 显示结果信息
             resultDiv.innerHTML = `
-                <div class="alert alert-primary mt-3">
-                    <h5>
-                        <span class="badge bg-primary">${data.score}/10</span>
-                        <small class="text-muted ms-2">由 ${data.model_used.toUpperCase()} 模型评分</small>
-                    </h5>
-                    <hr>
-                    <h6>评价:</h6>
-                    <div class="markdown-body mt-2">${data.feedback}</div>
-                    ${data.correct_answer ? `
-                    <hr>
-                    <h6>参考答案:</h6>
-                    <div class="markdown-body mt-2">${data.correct_answer}</div>
-                    ` : ''}
+                <div class="alert ${data.is_correct ? 'alert-success' : 'alert-danger'} mt-3">
+                    <strong>${data.is_correct ? '答对了！' : '答错了！'}</strong>
+                    <p>正确答案：${data.correct_answer}</p>
+                    ${data.explanation ? `<hr><div class="explanation-content markdown-body">${data.explanation}</div>` : ''}
                 </div>
             `;
             
-            // 渲染结果中的数学公式
+            // 渲染解析中的数学公式
             renderMathInElement(resultDiv);
         } else {
             // 错误处理
             resultDiv.innerHTML = `
                 <div class="alert alert-danger mt-3">
-                    ${data.error || '提交答案时出错，请稍后再试'}
+                    ${data.message || '提交答案时出错，请稍后再试'}
                 </div>
             `;
-            
-            // 渲染结果中的错误信息中可能包含的数学公式
-            renderMathInElement(resultDiv);
         }
     }
 }
