@@ -19,7 +19,7 @@ urlpatterns = [
     
     # AI推荐相关的URL
     path('ai_recommend/', views.ai_recommend_exercises, name='ai_recommend'),
-    path('ai_recommend/get_recommendations/', views.get_ai_exercise_recommendations, name='get_ai_exercise_recommendations'),
+    path('ai_recommend/get_recommendations/', views.get_ai_exercise_recommendations_async, name='get_ai_exercise_recommendations'),
     
     # 知识点提取与习题生成
     path('extract_knowledge/', views.extract_mistake_knowledge_points, name='extract_knowledge'),

@@ -1,8 +1,12 @@
 import json
 import requests
+import asyncio  # 添加异步支持
+import httpx  # 添加异步HTTP客户端
+import aiohttp  # 添加异步HTTP库
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponse
 from django.views.decorators.http import require_POST, require_http_methods
 from django.contrib.auth.decorators import login_required
+from asgiref.sync import sync_to_async, async_to_sync  # 添加异步转同步工具
 from django.shortcuts import get_object_or_404, render, redirect
 from django.views.decorators.csrf import csrf_exempt  # 添加CSRF豁免装饰器
 from django.db.models import Count, Q, F, Sum, Case, When, Value, IntegerField
@@ -18,11 +22,11 @@ from django.contrib import messages
 # 替换配置
 # Grok API配置
 GROK_API_KEY = "xai-O3QdRmxwS48SZJGgp646FnBoFyum2liAKZTEim1frYcTf8Uv6BuNcDsjLbgDGIIPlrQhotNKKGzCs8qQ"  # 实际使用时需要填入您的API密钥
-GROK_API_URL = " https://api.x.ai/v1/chat/completions"  # 假设的API URL
+GROK_API_URL = "https://api.x.ai/v1/chat/completions"  # 修复URL格式，添加https://
 
 # DeepSeek API配置
 DEEPSEEK_API_KEY = "sk-f2d0085bbb88479b9b0d7b1f2451b310"  # 实际使用时需要填入您的API密钥
-DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"  # 假设的API URL
+DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"  # 修复URL格式，添加https://
 
 # 当前使用的模型类型，可以是 "grok" 或 "deepseek"
 CURRENT_MODEL = "grok"  # 默认使用Grok
@@ -644,141 +648,6 @@ def ai_recommend_exercises(request):
     
     return render(request, 'courses/ai_recommend.html', context)
 
-@login_required
-@require_POST
-def get_ai_exercise_recommendations(request):
-    """处理AI推荐请求并返回结果"""
-    try:
-        model_type = request.POST.get('model_type', CURRENT_MODEL)
-        logger.info(f"收到推荐请求，模型类型: {model_type}")
-        
-        # 确保模型类型有效
-        if model_type not in ['grok', 'deepseek']:
-            model_type = CURRENT_MODEL
-        
-        # 获取用户错题记录
-        mistake_collections = UserMistakeCollection.objects.filter(
-            user=request.user
-        ).select_related('exercise', 'exercise__section', 'exercise__section__chapter', 'exercise__section__chapter__book')[:5]
-        
-        if not mistake_collections.exists():
-            context = {
-                'error_message': '没有足够的错题记录进行个性化推荐',
-                'mistakes': UserMistakeCollection.objects.filter(
-                    user=request.user
-                ).select_related(
-                    'exercise', 'exercise__section', 'exercise__section__chapter'
-                ).order_by('-added_at')[:10],
-                'knowledge_stats': get_user_knowledge_weakness(request.user),
-                'selected_model': model_type
-            }
-            return render(request, 'courses/ai_recommend.html', context)
-        
-        # 准备提示词
-        prompt = _prepare_recommendation_prompt(request.user, mistake_collections)
-        
-        # 调用大模型获取推荐结果
-        raw_recommendations = _call_large_language_model_with_retry(prompt, model_type)
-        
-        # 记录原始返回
-        logger.info(f"API原始返回: {json.dumps(raw_recommendations, ensure_ascii=False)}")
-        
-        # 后处理推荐结果，确保格式正确
-        recommendations = _post_process_recommendations(raw_recommendations)
-        
-        # 记录处理后的结果
-        logger.info(f"处理后的结果: {json.dumps(recommendations, ensure_ascii=False)}")
-        
-        # 最后安全检查，确保每个推荐题目至少有options字段
-        for item in recommendations:
-            if isinstance(item, dict) and 'type' in item:
-                if item['type'] in ['单选题', '多选题'] and ('options' not in item or not item['options']):
-                    logger.warning(f"推荐题目缺少options字段: {json.dumps(item, ensure_ascii=False)}")
-                    # 确保添加默认选项
-                    item['options'] = {
-                        'A': '选项A (系统生成)',
-                        'B': '选项B (系统生成)',
-                        'C': '选项C (系统生成)',
-                        'D': '选项D (系统生成)'
-                    }
-        
-        # 获取所有书籍字典，用于查找书籍ID
-        books_dict = {book.title: book for book in Book.objects.all()}
-        
-        # 将推荐结果保存到数据库
-        saved_recommendations = []
-        for item in recommendations:
-            if isinstance(item, dict) and 'content' in item and not 'error' in item:
-                # 将题目类型转换为数据库格式
-                exercise_type = 'single'  # 默认为单选题
-                if item.get('type') == '多选题':
-                    exercise_type = 'multiple'
-                elif item.get('type') == '综合题':
-                    exercise_type = 'comprehensive'
-                
-                # 处理难度
-                difficulty = 'medium'  # 默认为中等
-                if item.get('difficulty') == '简单':
-                    difficulty = 'easy'
-                elif item.get('difficulty') == '困难':
-                    difficulty = 'hard'
-                
-                # 处理知识点
-                knowledge_points = item.get('knowledge_points', [])
-                if isinstance(knowledge_points, str):
-                    knowledge_points = [knowledge_points]
-                
-                # 根据题目内容找到对应的书籍
-                book = None
-                book_title = item.get('book_title')
-                if book_title and book_title in books_dict:
-                    book = books_dict[book_title]
-                
-                # 创建或更新AI习题记录
-                ai_exercise, created = AIGeneratedExercise.objects.update_or_create(
-                    user=request.user,
-                    content=item['content'],
-                    defaults={
-                        'model_type': model_type,
-                        'type': exercise_type,
-                        'options': item.get('options'),
-                        'answer': item.get('answer', ''),
-                        'explanation': item.get('explanation', '无解析'),
-                        'difficulty': difficulty,
-                        'knowledge_points': knowledge_points,
-                        'reason': item.get('reason', '基于您的学习情况推荐'),
-                        'book': book  # 使用每道题目对应的书籍
-                    }
-                )
-                
-                # 将数据库ID添加到推荐结果
-                item['db_id'] = ai_exercise.id
-                saved_recommendations.append(ai_exercise)
-        
-        # 准备渲染上下文
-        context = {
-            'recommendations': recommendations,
-            'model_used': model_type,
-            'mistakes': mistake_collections,
-            'knowledge_stats': get_user_knowledge_weakness(request.user),
-            'selected_model': model_type
-        }
-        
-        return render(request, 'courses/ai_recommend.html', context)
-    except Exception as e:
-        logger.error(f"生成推荐时出错: {str(e)}", exc_info=True)
-        context = {
-            'error_message': f'生成推荐时出错: {str(e)}',
-            'mistakes': UserMistakeCollection.objects.filter(
-                user=request.user
-            ).select_related(
-                'exercise', 'exercise__section', 'exercise__section__chapter'
-            ).order_by('-added_at')[:10],
-            'knowledge_stats': get_user_knowledge_weakness(request.user),
-            'selected_model': model_type if 'model_type' in locals() else CURRENT_MODEL
-        }
-        return render(request, 'courses/ai_recommend.html', context)
-
 def _prepare_recommendation_prompt(user, mistake_collections):
     """准备推荐提示词"""
     # 构建错题和知识点信息
@@ -856,8 +725,13 @@ def _prepare_recommendation_prompt(user, mistake_collections):
     
     return prompt
 
-def _call_large_language_model_with_retry(prompt, model_type="grok", max_retries=3, timeout=60):
-    """带有重试机制的大语言模型API调用函数
+async def _prepare_recommendation_prompt_async(user, mistake_collections):
+    """准备推荐提示词 (异步版本)"""
+    # 安全地获取提示词
+    return await sync_to_async(_prepare_recommendation_prompt)(user, mistake_collections)
+
+async def _call_large_language_model_with_retry(prompt, model_type="grok", max_retries=3, timeout=60):
+    """带有重试机制的大语言模型API调用函数 (异步版本)
     
     Args:
         prompt: 提示词
@@ -868,7 +742,7 @@ def _call_large_language_model_with_retry(prompt, model_type="grok", max_retries
     Returns:
         list: 处理后的模型响应
     """
-    logger.info(f"开始调用{model_type}模型API（带重试机制），最大重试次数：{max_retries}，超时：{timeout}秒")
+    logger.info(f"开始异步调用{model_type}模型API（带重试机制），最大重试次数：{max_retries}，超时：{timeout}秒")
     
     # 如果API密钥未设置，使用模拟数据
     if model_type == "grok" and not GROK_API_KEY:
@@ -882,79 +756,80 @@ def _call_large_language_model_with_retry(prompt, model_type="grok", max_retries
     retry_count = 0
     last_error = None
     
-    while retry_count < max_retries:
-        try:
-            # 根据模型类型选择不同的API调用函数
-            if model_type == "grok":
-                logger.info(f"尝试调用Grok API（尝试 {retry_count + 1}/{max_retries}）")
-                # 选择要使用的API函数
-                api_func = _call_grok_api
-                api_url = GROK_API_URL
-            else:  # deepseek
-                logger.info(f"尝试调用DeepSeek API（尝试 {retry_count + 1}/{max_retries}）")
-                api_func = _call_deepseek_api
-                api_url = DEEPSEEK_API_URL
-            
-            # 发送请求前检查API端点是否可达
+    async with httpx.AsyncClient() as client:
+        while retry_count < max_retries:
             try:
-                # 使用HEAD请求快速检查API端点是否可达
-                head_response = requests.head(api_url, timeout=5)
-                logger.info(f"{model_type} API端点状态码: {head_response.status_code}")
-            except requests.exceptions.RequestException as e:
-                logger.warning(f"{model_type} API端点不可达: {str(e)}")
-                # 如果端点不可达，直接进入下一次重试
+                # 根据模型类型选择不同的API调用函数
+                if model_type == "grok":
+                    logger.info(f"尝试异步调用Grok API（尝试 {retry_count + 1}/{max_retries}）")
+                    # 选择要使用的API函数
+                    api_func = _call_grok_api_async
+                    api_url = GROK_API_URL
+                else:  # deepseek
+                    logger.info(f"尝试异步调用DeepSeek API（尝试 {retry_count + 1}/{max_retries}）")
+                    api_func = _call_deepseek_api_async
+                    api_url = DEEPSEEK_API_URL
+                
+                # 发送请求前检查API端点是否可达
+                try:
+                    # 使用HEAD请求快速检查API端点是否可达
+                    head_response = await client.head(api_url, timeout=5)
+                    logger.info(f"{model_type} API端点状态码: {head_response.status_code}")
+                except httpx.RequestError as e:
+                    logger.warning(f"{model_type} API端点不可达: {str(e)}")
+                    # 如果端点不可达，直接进入下一次重试
+                    retry_count += 1
+                    last_error = f"API端点不可达: {str(e)}"
+                    
+                    if retry_count < max_retries:
+                        logger.info(f"等待2秒后重试...")
+                        await asyncio.sleep(2)
+                    continue
+                
+                # 调用相应的API函数，设置更长的超时时间
+                response = await api_func(client, prompt)
+                
+                # 检查响应是否包含错误
+                if isinstance(response, list) and len(response) > 0 and "error" in response[0]:
+                    error_msg = response[0].get("error", "未知错误")
+                    logger.warning(f"{model_type} API调用返回错误: {error_msg}")
+                    
+                    # 某些错误是不需要重试的（如认证错误）
+                    if "API密钥未设置" in error_msg or "认证失败" in error_msg or "无效的API密钥" in error_msg:
+                        logger.error(f"{model_type} API认证错误，不再重试: {error_msg}")
+                        return response
+                    
+                    # 对于其他错误，继续重试
+                    retry_count += 1
+                    last_error = error_msg
+                    
+                    if retry_count < max_retries:
+                        logger.info(f"等待2秒后重试...")
+                        await asyncio.sleep(2)
+                    continue
+                
+                # 如果没有错误，返回结果
+                logger.info(f"成功获取{model_type} API响应")
+                return response
+                
+            except Exception as e:
                 retry_count += 1
-                last_error = f"API端点不可达: {str(e)}"
+                last_error = str(e)
+                logger.warning(f"{model_type} API调用异常 (尝试 {retry_count}/{max_retries}): {last_error}")
                 
                 if retry_count < max_retries:
-                    logger.info(f"等待2秒后重试...")
-                    time.sleep(2)
-                continue
-            
-            # 调用相应的API函数，设置更长的超时时间
-            response = api_func(prompt)
-            
-            # 检查响应是否包含错误
-            if isinstance(response, list) and len(response) > 0 and "error" in response[0]:
-                error_msg = response[0].get("error", "未知错误")
-                logger.warning(f"{model_type} API调用返回错误: {error_msg}")
-                
-                # 某些错误是不需要重试的（如认证错误）
-                if "API密钥未设置" in error_msg or "认证失败" in error_msg or "无效的API密钥" in error_msg:
-                    logger.error(f"{model_type} API认证错误，不再重试: {error_msg}")
-                    return response
-                
-                # 对于其他错误，继续重试
-                retry_count += 1
-                last_error = error_msg
-                
-                if retry_count < max_retries:
-                    logger.info(f"等待2秒后重试...")
-                    time.sleep(2)
-                continue
-            
-            # 如果没有错误，返回结果
-            logger.info(f"成功获取{model_type} API响应")
-            return response
-            
-        except Exception as e:
-            retry_count += 1
-            last_error = str(e)
-            logger.warning(f"{model_type} API调用异常 (尝试 {retry_count}/{max_retries}): {last_error}")
-            
-            if retry_count < max_retries:
-                # 增加等待时间，避免频繁请求
-                wait_time = 2 * retry_count  # 渐进式增加等待时间
-                logger.info(f"等待{wait_time}秒后重试...")
-                time.sleep(wait_time)
-    
-    # 如果所有重试都失败，返回错误信息
-    logger.error(f"{model_type} API在{max_retries}次尝试后仍然失败: {last_error}")
-    return [{"error": f"API调用在{max_retries}次尝试后失败: {last_error}", "content": "模型调用失败，请稍后再试。"}]
+                    # 增加等待时间，避免频繁请求
+                    wait_time = 2 * retry_count  # 渐进式增加等待时间
+                    logger.info(f"等待{wait_time}秒后重试...")
+                    await asyncio.sleep(wait_time)
+        
+        # 如果所有重试都失败，返回错误信息
+        logger.error(f"{model_type} API在{max_retries}次尝试后仍然失败: {last_error}")
+        return [{"error": f"API调用在{max_retries}次尝试后失败: {last_error}", "content": "模型调用失败，请稍后再试。"}]
 
-def _call_grok_api(prompt):
-    """调用Grok API"""
-    logger.info("正在调用Grok API...")
+async def _call_grok_api_async(client, prompt):
+    """异步调用Grok API"""
+    logger.info("正在异步调用Grok API...")
     
     headers = {
         "Authorization": f"Bearer {GROK_API_KEY}",
@@ -972,7 +847,7 @@ def _call_grok_api(prompt):
     }
     
     try:
-        response = requests.post(GROK_API_URL, headers=headers, json=data, timeout=60)
+        response = await client.post(GROK_API_URL, headers=headers, json=data, timeout=60.0)
         
         if response.status_code == 200:
             response_data = response.json()
@@ -1017,16 +892,16 @@ def _call_grok_api(prompt):
             error_msg = f"Grok API调用失败: HTTP {response.status_code}"
             logger.error(f"{error_msg} - {response.text}")
             return [{"error": error_msg}]
-    except requests.exceptions.Timeout:
+    except httpx.TimeoutException:
         logger.error("Grok API调用超时")
         return [{"error": "API调用超时"}]
     except Exception as e:
         logger.error(f"Grok API调用出错: {str(e)}")
         return [{"error": f"API调用异常: {str(e)}"}]
 
-def _call_deepseek_api(prompt):
-    """调用DeepSeek API"""
-    logger.info("正在调用DeepSeek API...")
+async def _call_deepseek_api_async(client, prompt):
+    """异步调用DeepSeek API"""
+    logger.info("正在异步调用DeepSeek API...")
     
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
@@ -1044,7 +919,7 @@ def _call_deepseek_api(prompt):
     }
     
     try:
-        response = requests.post(DEEPSEEK_API_URL, headers=headers, json=data, timeout=30)
+        response = await client.post(DEEPSEEK_API_URL, headers=headers, json=data, timeout=30.0)
         
         if response.status_code == 200:
             response_data = response.json()
@@ -1089,310 +964,113 @@ def _call_deepseek_api(prompt):
             error_msg = f"DeepSeek API调用失败: HTTP {response.status_code}"
             logger.error(f"{error_msg} - {response.text}")
             return [{"error": error_msg}]
-    except requests.exceptions.Timeout:
+    except httpx.TimeoutException:
         logger.error("DeepSeek API调用超时")
         return [{"error": "API调用超时"}]
     except Exception as e:
         logger.error(f"DeepSeek API调用出错: {str(e)}")
         return [{"error": f"API调用异常: {str(e)}"}]
 
-# def _mock_ai_recommendations(model_type="grok"):
-#     """提供模拟的AI推荐数据（开发/测试环境使用）"""
-#     # 根据不同模型提供略有差异的模拟数据，便于区分
-#     common_recommendations = [
-#         {
-#             "content": "设计一个算法，实现链表的反转操作。要求时间复杂度为O(n)，空间复杂度为O(1)。",
-#             "type": "综合题",
-#             "difficulty": "中等",
-#             "knowledge_points": ["链表", "指针操作", "算法复杂度"],
-#             "reason": "学生在链表操作相关题目上存在困难，这道题可以帮助巩固链表基本操作和指针概念。"
-#         },
-#         {
-#             "content": "请分析快速排序算法的平均时间复杂度和最坏时间复杂度，并解释为什么存在差异。",
-#             "type": "综合题",
-#             "difficulty": "中等",
-#             "knowledge_points": ["排序算法", "算法复杂度分析", "分治策略"],
-#             "reason": "学生在算法复杂度分析方面有欠缺，这道题有助于加深对复杂度分析的理解。"
-#         },
-#         {
-#             "content": "以下哪种数据结构适合实现优先队列？\nA. 数组\nB. 链表\nC. 堆\nD. 栈",
-#             "type": "单选题",
-#             "difficulty": "简单",
-#             "knowledge_points": ["数据结构", "优先队列", "堆"],
-#             "reason": "学生在数据结构选择题上有失误，这道题可以帮助理解不同数据结构的应用场景。"
-#         }
-#     ]
-    
-#     if model_type == "grok":
-#         grok_specific = [
-#             {
-#                 "content": "给定一棵二叉树，编写算法求树的最大深度。",
-#                 "type": "综合题",
-#                 "difficulty": "简单",
-#                 "knowledge_points": ["二叉树", "递归", "深度优先搜索"],
-#                 "reason": "学生在树相关算法上存在困难，这道基础题有助于巩固树的遍历和递归概念。"
-#             },
-#             {
-#                 "content": "以下关于哈希表的描述，正确的是：\nA. 哈希表的插入和查找操作平均时间复杂度为O(n)\nB. 哈希表不存在冲突问题\nC. 哈希表的负载因子不影响性能\nD. 哈希表的平均查找时间复杂度为O(1)",
-#                 "type": "单选题",
-#                 "difficulty": "中等",
-#                 "knowledge_points": ["哈希表", "数据结构", "算法复杂度"],
-#                 "reason": "学生对数据结构的性能特性理解不足，这道题可以帮助加深对哈希表性能特点的理解。"
-#             }
-#         ]
-#         return common_recommendations + grok_specific
-#     else:  # deepseek
-#         deepseek_specific = [
-#             {
-#                 "content": "实现一个算法解决背包问题（Knapsack Problem），给定n个物品，每个物品有重量和价值，在总重量不超过W的情况下，如何选择物品使总价值最大？",
-#                 "type": "综合题",
-#                 "difficulty": "困难",
-#                 "knowledge_points": ["动态规划", "贪心算法", "背包问题"],
-#                 "reason": "学生在算法设计类问题上表现较弱，这道题可以培养系统性解决复杂问题的能力。"
-#             },
-#             {
-#                 "content": "下列关于B树和B+树的说法，错误的是：\nA. B+树只在叶子节点存储数据\nB. B树适合做文件系统\nC. B+树的查询稳定性优于B树\nD. B树比B+树支持更高效的范围查询",
-#                 "type": "单选题",
-#                 "difficulty": "中等",
-#                 "knowledge_points": ["树结构", "数据库索引", "查询优化"],
-#                 "reason": "学生对高级数据结构理解不足，这道题有助于理解不同树结构的应用场景和优缺点。"
-#             }
-#         ]
-#         return common_recommendations + deepseek_specific
-
 @login_required
-def extract_mistake_knowledge_points(request):
-    """从用户错题中提取知识点并基于大模型生成相关练习题"""
-    if request.method == 'GET':
-        # 获取用户的错题集
-        mistakes = UserMistakeCollection.objects.filter(
-            user=request.user
-        ).select_related(
-            'exercise', 'exercise__section', 'exercise__section__chapter'
-        ).order_by('-added_at')[:10]  # 最近10道错题
-        
-        # 准备上下文
-        context = {
-            'mistakes': mistakes,
-            'extracted_knowledge': None,
-            'generated_exercises': None,
-            'error_message': None
-        }
-        
-        return render(request, 'courses/extract_knowledge.html', context)
+@require_POST
+async def get_ai_exercise_recommendations_async(request):
+    """异步生成AI习题推荐"""
+    user = request.user
+    model_type = request.POST.get('model_type', 'grok')  # 默认使用grok
     
-    elif request.method == 'POST':
-        try:
-            action = request.POST.get('action')
-            
-            # 获取用户的错题集
-            mistakes = UserMistakeCollection.objects.filter(
-                user=request.user
-            ).select_related(
-                'exercise', 'exercise__section', 'exercise__section__chapter'
-            ).order_by('-added_at')[:10]  # 最近10道错题
-            
-            if action == 'extract_knowledge':
-                # 提取知识点
-                extracted_knowledge = _extract_knowledge_from_mistakes(mistakes)
+    # 使用sync_to_async安全地获取用户名
+    username = await sync_to_async(lambda: user.username)()
+    logger.info(f"开始为用户 {username} 生成AI习题推荐（使用{model_type}模型 - 异步版本）")
+    
+    # 1. 获取用户的错题集
+    mistake_collections = await sync_to_async(list)(UserMistakeCollection.objects.filter(
+        user=user
+    ).select_related(
+        'exercise', 'exercise__section', 'exercise__section__chapter', 'exercise__section__chapter__book'
+    ))
+    
+    if not mistake_collections:
+        # 如果没有错题集，随机推荐一些知识点
+        logger.info(f"用户 {username} 没有错题集，使用随机知识点生成推荐")
+        mistake_count = 0
+    else:
+        mistake_count = len(mistake_collections)
+        logger.info(f"用户 {username} 有 {mistake_count} 条错题记录")
+    
+    # 2. 准备提示词
+    prompt = await _prepare_recommendation_prompt_async(user, mistake_collections)
+    logger.info(f"为用户 {username} 生成的提示词长度: {len(prompt)} 字符")
+    
+    # 3. 使用大语言模型生成推荐习题
+    try:
+        # 调用大模型获取推荐结果
+        raw_recommendations = await _call_large_language_model_with_retry(prompt, model_type)
+        
+        # 记录原始返回
+        logger.info(f"AI模型返回的原始推荐数: {len(raw_recommendations) if isinstance(raw_recommendations, list) else 'not a list'}")
+        
+        # 处理响应结果 - 将同步函数包装为异步
+        processed_results = await sync_to_async(_post_process_recommendations)(raw_recommendations)
+        
+        # 保存到数据库
+        for item in processed_results:
+            try:
+                # 确定关联的书籍，如果有
+                book = None
+                if 'book_title' in item and item['book_title']:
+                    # 尝试按书名查找
+                    books = await sync_to_async(list)(Book.objects.filter(title__icontains=item['book_title']))
+                    if books:
+                        book = books[0]
                 
-                # 准备上下文
-                context = {
-                    'mistakes': mistakes,
-                    'extracted_knowledge': extracted_knowledge,
-                    'generated_exercises': None
+                # 创建AI习题 - 使用异步创建方式
+                exercise_data = {
+                    'user': user,
+                    'content': item['content'],
+                    'type': item.get('type', 'comprehensive'),
+                    'difficulty': item.get('difficulty', '中等'),
+                    'knowledge_points': item.get('knowledge_points', []),
+                    'options': item.get('options', {}),
+                    'answer': item.get('answer', ''),
+                    'explanation': item.get('explanation', ''),
+                    'reason': item.get('reason', ''),
+                    'book': book,
+                    'model_type': model_type
                 }
                 
-                return render(request, 'courses/extract_knowledge.html', context)
+                # 将类型值标准化
+                if exercise_data['type'] == '单选题' or exercise_data['type'] == '单项选择题' or exercise_data['type'] == '选择题':
+                    exercise_data['type'] = 'single'
+                elif exercise_data['type'] == '多选题' or exercise_data['type'] == '多项选择题':
+                    exercise_data['type'] = 'multiple'
+                elif exercise_data['type'] == '综合题':
+                    exercise_data['type'] = 'comprehensive'
                 
-            elif action == 'generate_exercises':
-                # 获取用户指定的知识点
-                selected_knowledge = request.POST.getlist('selected_knowledge')
+                # 使用sync_to_async包装创建操作
+                exercise = await sync_to_async(AIGeneratedExercise.objects.create)(**exercise_data)
                 
-                if not selected_knowledge:
-                    raise ValueError("请至少选择一个知识点")
+                # 记录创建成功
+                logger.info(f"成功创建AI习题: ID={exercise.id}, 类型={exercise.type}, 难度={exercise.difficulty}")
                 
-                # 根据选择的知识点生成练习题
-                generated_exercises = _generate_exercises_from_knowledge(selected_knowledge, request.user)
-                
-                # 提取所有错题的知识点
-                extracted_knowledge = _extract_knowledge_from_mistakes(mistakes)
-                
-                # 准备上下文
-                context = {
-                    'mistakes': mistakes,
-                    'extracted_knowledge': extracted_knowledge,
-                    'generated_exercises': generated_exercises
-                }
-                
-                return render(request, 'courses/extract_knowledge.html', context)
-            
-            else:
-                raise ValueError("未知的操作类型")
-                
-        except Exception as e:
-            # 出错处理
-            context = {
-                'mistakes': mistakes if 'mistakes' in locals() else [],
-                'error_message': f'处理错误: {str(e)}',
-                'extracted_knowledge': None,
-                'generated_exercises': None
-            }
-            
-            return render(request, 'courses/extract_knowledge.html', context)
-
-def _extract_knowledge_from_mistakes(mistakes):
-    """使用大模型从错题中提取知识点"""
-    if not mistakes:
-        return []
-    
-    # 准备错题内容
-    exercise_contents = []
-    for mistake in mistakes:
-        exercise_contents.append({
-            'id': mistake.exercise.id,
-            'content': mistake.exercise.content,
-            'answer': mistake.exercise.answer,
-            'type': mistake.exercise.type,
-            'user_answer': mistake.last_wrong_answer or None
+            except Exception as e:
+                logger.error(f"保存AI习题时发生错误: {str(e)}")
+        
+        # 返回JSON响应
+        return JsonResponse({
+            'status': 'success',
+            'message': f'成功生成 {len(processed_results)} 道习题',
+            'recommendations': processed_results,
+            'mistake_count': mistake_count,
+            'redirect': '/ai-exercises/'
         })
-    
-    # 构建提示词
-    prompt = f"""
-分析以下这些习题，提取出它们涉及的关键知识点。每个知识点应该是具体的、精确的概念或技术。
-
-习题内容:
-{json.dumps(exercise_contents, ensure_ascii=False, indent=2)}
-
-请提取出至少5个关键知识点，每个知识点请用简短的短语表示（不超过10个字），并附带简要解释（不超过50个字）。
-格式如下:
-[
-  {{
-    "knowledge_point": "知识点名称",
-    "explanation": "简要解释",
-    "related_exercise_ids": [相关习题ID]
-  }},
-  ...
-]
-"""
-    
-    # 调用大模型API获取知识点
-    try:
-        # 使用当前设置的默认模型
-        extracted_knowledge = _call_large_language_model_with_retry(prompt, CURRENT_MODEL)
-        return extracted_knowledge
-    except Exception as e:
-        logger.error(f"调用大模型提取知识点时出错: {str(e)}")
-        # 如果API调用失败，返回空列表
-        return []
-
-def _generate_exercises_from_knowledge(knowledge_points, user=None):
-    """根据知识点生成相关练习题，并保存到数据库"""
-    if not knowledge_points:
-        return []
-    
-    # 获取所有书籍信息
-    books = Book.objects.all()
-    book_list = [{'id': book.id, 'title': book.title} for book in books]
-    
-    # 构建提示词
-    prompt = f"""
-根据以下知识点，生成相关的练习题：
-{', '.join(knowledge_points)}
-
-可用的书籍列表:
-{json.dumps(book_list, ensure_ascii=False, indent=2)}
-
-请为每个知识点生成1-2道练习题，包括题目内容、选项（如适用）和答案。
-每道题应该清晰、具体，并能够有效测试对该知识点的理解。
-
-重要：对于每道题目，请仔细判断它最应该属于哪本书籍，并在"book_title"字段中提供书籍标题。
-这对于正确分类习题非常重要。
-
-请以JSON格式返回，格式如下:
-[
-  {{
-    "content": "题目内容",
-    "type": "single/multiple", // 单选或多选
-    "options": {{
-      "A": "选项A内容",
-      "B": "选项B内容",
-      "C": "选项C内容",
-      "D": "选项D内容"
-    }},
-    "answer": "正确答案", // 单选题为A/B/C/D之一，多选题为多个选项以逗号分隔，如"A,C"
-    "explanation": "解析",
-    "knowledge_point": "相关知识点",
-    "book_title": "所属书籍标题" // 必须从上面提供的书籍列表中选择一个最匹配的
-  }},
-  ...
-]
-"""
-    
-    # 调用大模型API生成练习题
-    try:
-        # 使用当前设置的默认模型
-        generated_exercises = _call_large_language_model_with_retry(prompt, CURRENT_MODEL)
         
-        # 如果提供了用户，则将生成的习题保存到数据库
-        if user and isinstance(generated_exercises, list):
-            # 获取所有书籍的字典
-            books_dict = {book.title: book for book in Book.objects.all()}
-            
-            saved_exercises = []
-            for item in generated_exercises:
-                if isinstance(item, dict) and 'content' in item:
-                    # 确定题目类型
-                    exercise_type = 'single'
-                    if item.get('type') == '多选题' or item.get('type') == 'multiple':
-                        exercise_type = 'multiple'
-                    elif item.get('type') == 'comprehensive':
-                        exercise_type = 'comprehensive'
-                    
-                    # 获取知识点
-                    knowledge_point = item.get('knowledge_point', '')
-                    if not knowledge_point and 'knowledge_points' in item:
-                        knowledge_point = item.get('knowledge_points', '')
-                    
-                    knowledge_points_list = []
-                    if knowledge_point:
-                        if isinstance(knowledge_point, list):
-                            knowledge_points_list = knowledge_point
-                        else:
-                            knowledge_points_list = [knowledge_point]
-                    
-                    # 根据题目内容找到对应的书籍
-                    book = None
-                    book_title = item.get('book_title')
-                    if book_title and book_title in books_dict:
-                        book = books_dict[book_title]
-                    
-                    # 保存到数据库
-                    ai_exercise = AIGeneratedExercise.objects.create(
-                        user=user,
-                        model_type='knowledge_extraction',  # 标记来源
-                        type=exercise_type,
-                        content=item['content'],
-                        options=item.get('options', {}),
-                        answer=item.get('answer', ''),
-                        explanation=item.get('explanation', ''),
-                        knowledge_points=knowledge_points_list,
-                        reason='基于知识点提取生成',
-                        difficulty='medium',  # 默认中等难度
-                        book=book  # 使用题目指定的书籍
-                    )
-                    
-                    # 添加数据库ID到返回的习题中，以便前端使用
-                    item['db_id'] = ai_exercise.id
-                    saved_exercises.append(ai_exercise)
-            
-            logger.info(f"已成功保存 {len(saved_exercises)} 道习题到数据库")
-        
-        return generated_exercises
     except Exception as e:
-        logger.error(f"调用大模型生成练习题时出错: {str(e)}")
-        # 如果API调用失败，返回空列表
-        return []
+        logger.error(f"生成AI习题推荐时出错: {str(e)}")
+        return JsonResponse({
+            'status': 'error',
+            'message': f'生成习题时出错: {str(e)}',
+            'redirect': None
+        })
 
 def _post_process_recommendations(recommendations):
     """处理和标准化推荐结果，确保每个题目都有合适的选项和答案"""
@@ -1467,11 +1145,11 @@ def _post_process_recommendations(recommendations):
             
             # 确定最终类型
             if is_multiple_choice:
-                processed_item['type'] = '多选题'
+                processed_item['type'] = 'multiple'
             elif is_single_choice or has_options:
-                processed_item['type'] = '单选题'
+                processed_item['type'] = 'single'
             else:
-                processed_item['type'] = '综合题'
+                processed_item['type'] = 'comprehensive'
         
         # 处理选项
         if 'options' not in processed_item or not processed_item['options']:
@@ -1516,7 +1194,7 @@ def _post_process_recommendations(recommendations):
                         break
             
             # 如果找到了选项或者题目类型是选择题，添加选项
-            if options or processed_item['type'] in ['单选题', '多选题']:
+            if options or processed_item['type'] in ['single', 'multiple']:
                 # 如果没有足够的选项（至少有四个ABCD），补充默认选项
                 for key in ['A', 'B', 'C', 'D']:
                     if key not in options:
@@ -1526,9 +1204,9 @@ def _post_process_recommendations(recommendations):
         
         # 确保答案格式正确
         if 'answer' not in processed_item or not processed_item['answer']:
-            if processed_item['type'] == '单选题':
+            if processed_item['type'] == 'single':
                 processed_item['answer'] = 'A'  # 默认答案
-            elif processed_item['type'] == '多选题':
+            elif processed_item['type'] == 'multiple':
                 processed_item['answer'] = 'A,B'  # 默认答案
             else:
                 processed_item['answer'] = '略'
@@ -1558,7 +1236,7 @@ def _post_process_recommendations(recommendations):
 
 @csrf_exempt  # 临时添加CSRF豁免
 @require_http_methods(["POST"])
-def submit_ai_exercise_attempt(request):
+async def submit_ai_exercise_attempt(request):
     """处理用户对AI生成习题的答题提交"""
     try:
         # 解析前端提交的JSON数据
@@ -1575,7 +1253,7 @@ def submit_ai_exercise_attempt(request):
         
         # 获取习题信息
         try:
-            exercise = AIGeneratedExercise.objects.get(id=exercise_id, user=request.user)
+            exercise = await sync_to_async(AIGeneratedExercise.objects.get)(id=exercise_id, user=request.user)
         except AIGeneratedExercise.DoesNotExist:
             return JsonResponse({
                 'status': 'error',
@@ -1599,7 +1277,7 @@ def submit_ai_exercise_attempt(request):
             is_correct = user_answer.strip() == exercise.answer.strip()
         
         # 记录用户尝试
-        attempt = AIExerciseAttempt.objects.create(
+        attempt = await sync_to_async(AIExerciseAttempt.objects.create)(
             user=request.user,
             exercise=exercise,
             is_correct=is_correct,
@@ -1635,11 +1313,11 @@ def submit_ai_exercise_attempt(request):
         }, status=500)
 
 @login_required
-def get_ai_exercise_detail(request, exercise_id):
+async def get_ai_exercise_detail(request, exercise_id):
     """获取AI生成习题的详细信息"""
     try:
         # 获取习题信息
-        exercise = AIGeneratedExercise.objects.get(id=exercise_id, user=request.user)
+        exercise = await sync_to_async(AIGeneratedExercise.objects.get)(id=exercise_id, user=request.user)
         
         # 构建响应数据
         response_data = {
@@ -1660,18 +1338,260 @@ def get_ai_exercise_detail(request, exercise_id):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
 
-def _call_large_language_model(prompt, model_type="grok"):
-    """调用大语言模型API获取推荐（兼容性函数，内部使用重试机制）"""
-    # 使用实际API
-    logger.info(f"使用{model_type} API生成回答")
-    if model_type == "grok":
-        # 调用带重试机制的函数
-        return _call_large_language_model_with_retry(prompt, model_type)
-    elif model_type == "deepseek":
-        # 调用带重试机制的函数
-        return _call_large_language_model_with_retry(prompt, model_type)
-    else:
-        raise ValueError(f"不支持的模型类型: {model_type}")
+@login_required
+async def extract_mistake_knowledge_points(request):
+    """从用户错题中提取知识点并基于大模型生成相关练习题"""
+    # 安全获取用户，避免在异步上下文中触发同步数据库操作
+    user_id = await sync_to_async(lambda: request.user.id)()
+    
+    if request.method == 'GET':
+        # 使用user_id安全地查询错题集
+        mistakes = await sync_to_async(list)(UserMistakeCollection.objects.filter(
+            user_id=user_id
+        ).select_related(
+            'exercise', 'exercise__section', 'exercise__section__chapter'
+        ).order_by('-added_at')[:10])  # 最近10道错题
+        
+        # 准备上下文
+        context = {
+            'mistakes': mistakes,
+            'extracted_knowledge': None,
+            'generated_exercises': None,
+            'error_message': None
+        }
+        
+        return render(request, 'courses/extract_knowledge.html', context)
+    
+    elif request.method == 'POST':
+        try:
+            action = request.POST.get('action')
+            
+            # 使用user_id安全地查询错题集
+            mistakes = await sync_to_async(list)(UserMistakeCollection.objects.filter(
+                user_id=user_id
+            ).select_related(
+                'exercise', 'exercise__section', 'exercise__section__chapter'
+            ).order_by('-added_at')[:10])  # 最近10道错题
+            
+            if action == 'extract_knowledge':
+                # 提取知识点
+                extracted_knowledge = await _extract_knowledge_from_mistakes_async(mistakes)
+                
+                # 准备上下文
+                context = {
+                    'mistakes': mistakes,
+                    'extracted_knowledge': extracted_knowledge,
+                    'generated_exercises': None
+                }
+                
+                return render(request, 'courses/extract_knowledge.html', context)
+                
+            elif action == 'generate_exercises':
+                # 获取用户指定的知识点
+                selected_knowledge = request.POST.getlist('selected_knowledge')
+                
+                if not selected_knowledge:
+                    raise ValueError("请至少选择一个知识点")
+                
+                # 获取用户对象，用于保存生成的习题
+                from django.contrib.auth import get_user_model
+                User = get_user_model()
+                user = await sync_to_async(User.objects.get)(id=user_id)
+                
+                # 根据选择的知识点生成练习题
+                generated_exercises = await _generate_exercises_from_knowledge_async(selected_knowledge, user)
+                
+                # 提取所有错题的知识点
+                extracted_knowledge = await _extract_knowledge_from_mistakes_async(mistakes)
+                
+                # 准备上下文
+                context = {
+                    'mistakes': mistakes,
+                    'extracted_knowledge': extracted_knowledge,
+                    'generated_exercises': generated_exercises
+                }
+                
+                return render(request, 'courses/extract_knowledge.html', context)
+            
+            else:
+                raise ValueError("未知的操作类型")
+                
+        except Exception as e:
+            # 出错处理
+            context = {
+                'mistakes': mistakes if 'mistakes' in locals() else [],
+                'error_message': f'处理错误: {str(e)}',
+                'extracted_knowledge': None,
+                'generated_exercises': None
+            }
+            
+            return render(request, 'courses/extract_knowledge.html', context)
+
+async def _extract_knowledge_from_mistakes_async(mistakes):
+    """使用大模型从错题中异步提取知识点"""
+    if not mistakes:
+        return []
+    
+    # 准备错题内容
+    exercise_contents = []
+    for mistake in mistakes:
+        exercise_contents.append({
+            'id': mistake.exercise.id,
+            'content': mistake.exercise.content,
+            'answer': mistake.exercise.answer,
+            'type': mistake.exercise.type,
+            'user_answer': mistake.last_wrong_answer or None
+        })
+    
+    # 构建提示词
+    prompt = f"""
+分析以下这些习题，提取出它们涉及的关键知识点。每个知识点应该是具体的、精确的概念或技术。
+
+习题内容:
+{json.dumps(exercise_contents, ensure_ascii=False, indent=2)}
+
+请提取出至少5个关键知识点，每个知识点请用简短的短语表示（不超过10个字），并附带简要解释（不超过50个字）。
+格式如下:
+[
+  {{
+    "knowledge_point": "知识点名称",
+    "explanation": "简要解释",
+    "related_exercise_ids": [相关习题ID]
+  }},
+  ...
+]
+"""
+    
+    # 调用大模型API获取知识点
+    try:
+        # 使用当前设置的默认模型
+        extracted_knowledge = await _call_large_language_model_with_retry(prompt, CURRENT_MODEL)
+        return extracted_knowledge
+    except Exception as e:
+        logger.error(f"调用大模型提取知识点时出错: {str(e)}")
+        # 如果API调用失败，返回空列表
+        return []
+
+async def _generate_exercises_from_knowledge_async(knowledge_points, user=None):
+    """根据知识点异步生成相关练习题，并保存到数据库"""
+    if not knowledge_points:
+        return []
+    
+    # 获取所有书籍信息
+    books = await sync_to_async(list)(Book.objects.all())
+    book_list = [{'id': book.id, 'title': book.title} for book in books]
+    
+    # 构建提示词
+    prompt = f"""
+根据以下知识点，生成相关的练习题：
+{', '.join(knowledge_points)}
+
+可用的书籍列表:
+{json.dumps(book_list, ensure_ascii=False, indent=2)}
+
+请为每个知识点生成1-2道练习题，包括题目内容、选项（如适用）和答案。
+每道题应该清晰、具体，并能够有效测试对该知识点的理解。
+
+重要：对于每道题目，请仔细判断它最应该属于哪本书籍，并在"book_title"字段中提供书籍标题。
+这对于正确分类习题非常重要。
+
+请以JSON格式返回，格式如下:
+[
+  {{
+    "content": "题目内容",
+    "type": "single/multiple", // 单选或多选
+    "options": {{
+      "A": "选项A内容",
+      "B": "选项B内容",
+      "C": "选项C内容",
+      "D": "选项D内容"
+    }},
+    "answer": "正确答案", // 单选题为A/B/C/D之一，多选题为多个选项以逗号分隔，如"A,C"
+    "explanation": "解析",
+    "knowledge_point": "相关知识点",
+    "book_title": "所属书籍标题" // 必须从上面提供的书籍列表中选择一个最匹配的
+  }},
+  ...
+]
+"""
+    
+    # 调用大模型API生成练习题
+    try:
+        # 使用当前设置的默认模型
+        generated_exercises = await _call_large_language_model_with_retry(prompt, CURRENT_MODEL)
+        
+        # 如果提供了用户，则将生成的习题保存到数据库
+        if user and isinstance(generated_exercises, list):
+            # 获取所有书籍的字典
+            books_dict = {book.title: book for book in books}
+            
+            saved_exercises = []
+            for item in generated_exercises:
+                if isinstance(item, dict) and 'content' in item:
+                    try:
+                        # 确定题目类型
+                        exercise_type = 'single'
+                        if item.get('type') == '多选题' or item.get('type') == 'multiple':
+                            exercise_type = 'multiple'
+                        elif item.get('type') == 'comprehensive':
+                            exercise_type = 'comprehensive'
+                        
+                        # 获取知识点
+                        knowledge_point = item.get('knowledge_point', '')
+                        if not knowledge_point and 'knowledge_points' in item:
+                            knowledge_point = item.get('knowledge_points', '')
+                        
+                        knowledge_points_list = []
+                        if knowledge_point:
+                            if isinstance(knowledge_point, list):
+                                knowledge_points_list = knowledge_point
+                            else:
+                                knowledge_points_list = [knowledge_point]
+                        
+                        # 根据题目内容找到对应的书籍
+                        book = None
+                        book_title = item.get('book_title')
+                        if book_title and book_title in books_dict:
+                            book = books_dict[book_title]
+                        
+                        # 创建习题数据字典
+                        exercise_data = {
+                            'user': user,
+                            'model_type': 'knowledge_extraction',  # 标记来源
+                            'type': exercise_type,
+                            'content': item['content'],
+                            'options': item.get('options', {}),
+                            'answer': item.get('answer', ''),
+                            'explanation': item.get('explanation', ''),
+                            'knowledge_points': knowledge_points_list,
+                            'reason': '基于知识点提取生成',
+                            'difficulty': 'medium',  # 默认中等难度
+                            'book': book  # 使用题目指定的书籍
+                        }
+                        
+                        # 保存到数据库 - 使用async_to_sync处理
+                        exercise = await sync_to_async(AIGeneratedExercise.objects.create)(**exercise_data)
+                        
+                        # 添加数据库ID到返回的习题中，以便前端使用
+                        item['db_id'] = exercise.id
+                        saved_exercises.append(exercise)
+                    except Exception as e:
+                        logger.error(f"保存习题时出错: {str(e)}")
+                        continue
+            
+            logger.info(f"已成功保存 {len(saved_exercises)} 道习题到数据库")
+        
+        return generated_exercises
+    except Exception as e:
+        logger.error(f"调用大模型生成练习题时出错: {str(e)}")
+        # 如果API调用失败，返回空列表
+        return []
+
+async def _call_large_language_model(prompt, model_type="grok"):
+    """调用大语言模型API获取推荐（异步版本）"""
+    # 使用异步API
+    logger.info(f"使用{model_type} API生成回答（异步版本）")
+    return await _call_large_language_model_with_retry(prompt, model_type)
 
 @login_required
 def my_ai_exercises(request):
@@ -1851,3 +1771,4 @@ def submit_exercise_feedback(request):
     except Exception as e:
         logger.error(f"处理习题反馈时出错: {str(e)}")
         return JsonResponse({'status': 'error', 'error': f'服务器错误: {str(e)}'})
+

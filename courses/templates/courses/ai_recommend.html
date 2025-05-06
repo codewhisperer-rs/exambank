@@ -21,15 +21,24 @@
                 <div class="card-body">
                     <p>基于您的错题记录，AI将推荐适合您练习的题目。这些题目会针对您的薄弱知识点，帮助您更好地掌握相关概念。</p>
                     
-                    <form method="post" action="{% url 'courses:get_ai_exercise_recommendations' %}" id="recommendationForm">
-                        {% csrf_token %}
-                        <input type="hidden" name="model_type" value="{{ request.GET.model|default:'grok' }}">
-                        <div class="d-grid gap-2">
-                            <button type="submit" class="btn btn-primary">
-                                <i class="bi bi-magic"></i> 获取推荐
+                    <!-- CSRF令牌 -->
+                    {% csrf_token %}
+                    
+                    <!-- 推荐表单 -->
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="modelSelect" class="form-label">选择AI模型:</label>
+                            <select class="form-select" id="modelSelect" name="model_type">
+                                <option value="grok" selected>Grok (xAI)</option>
+                                <option value="deepseek">DeepSeek</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end mb-3">
+                            <button type="button" class="btn btn-primary" id="recommendAsyncButton">
+                                <i class="bi bi-lightning-charge"></i> 获取习题推荐
                             </button>
                         </div>
-                    </form>
+                    </div>
                     
                     <div id="loadingIndicator" class="text-center my-4" style="display: none;">
                         <div class="spinner-border text-primary" role="status">
@@ -305,16 +314,70 @@
         console.log('页面已加载，使用原生JavaScript初始化事件绑定');
         
         // 获取推荐按钮并绑定事件
-        const recommendForm = document.getElementById('recommendationForm');
         const loadingIndicator = document.getElementById('loadingIndicator');
+        const recommendBtn = document.getElementById('recommendAsyncButton');
         
-        if (recommendForm) {
-            recommendForm.addEventListener('submit', function() {
-                if (loadingIndicator) {
-                    loadingIndicator.style.display = 'block';
+        // 获取CSRF token
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+        
+        // 定义获取推荐的函数
+        function getRecommendations() {
+            if (loadingIndicator) {
+                loadingIndicator.style.display = 'block';
+            }
+            
+            const modelType = document.getElementById('modelSelect').value;
+            
+            // 禁用按钮，避免重复点击
+            if (recommendBtn) recommendBtn.disabled = true;
+            
+            // 发送异步请求
+            fetch('{% url "courses:get_ai_exercise_recommendations" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': csrfToken
+                },
+                body: `model_type=${modelType}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('推荐响应:', data);
+                
+                if (data.status === 'success') {
+                    // 重定向到结果页面
+                    if (data.redirect) {
+                        // 确保重定向URL是完整的，包含域名
+                        if (data.redirect.startsWith('/')) {
+                            window.location.href = data.redirect;
+                        } else {
+                            window.location.href = '/' + data.redirect;
+                        }
+                    } else {
+                        alert('习题生成成功！请查看您的习题库。');
+                        // 没有指定重定向时，默认重定向到AI习题库页面
+                        window.location.href = '/ai-exercises/';
+                    }
+                } else {
+                    alert('生成习题失败: ' + data.message);
                 }
-                return true;
+            })
+            .catch(error => {
+                console.error('请求错误:', error);
+                alert('请求出错，请稍后再试');
+            })
+            .finally(() => {
+                if (loadingIndicator) {
+                    loadingIndicator.style.display = 'none';
+                }
+                // 重新启用按钮
+                if (recommendBtn) recommendBtn.disabled = false;
             });
+        }
+        
+        // 绑定获取推荐按钮点击事件
+        if (recommendBtn) {
+            recommendBtn.addEventListener('click', getRecommendations);
         }
         
         // 使用事件委托处理按钮点击
