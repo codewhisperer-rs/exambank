@@ -11,7 +11,7 @@
 </nav>
 
 <div class="row">
-    <div class="col-md-8">
+    <div class="col-md-9">
         <h1 class="mb-4">{{ book.title }}</h1>
         <p class="lead">{{ book.description }}</p>
         
@@ -19,7 +19,7 @@
             {% for chapter in chapters %}
             <a href="{% url 'courses:chapter_detail' chapter.id %}" class="list-group-item list-group-item-action">
                 <div style="text-align: right;">
-                <small class="text-muted">{{ chapter.sections.count }} 个小节</small>
+                <small class="text-muted">{{ chapter.filtered_sections_count }} 个小节</small>
                 </div>
                 {% if chapter.introduction %}
                 <div class="mb-1 chapter-introduction">{{ chapter.introduction|safe }}</div>
@@ -29,8 +29,8 @@
         </div>
     </div>
     
-    <div class="col-md-4">
-        <div class="card">
+    <div class="col-md-3">
+        <div class="card sticky-top" style="top: 0;">
             <div class="card-body">
                 <h5 class="card-title">学习进度</h5>
                 <div class="progress mb-3">

@@ -7,7 +7,7 @@
     <ol class="breadcrumb">
         <li class="breadcrumb-item"><a href="{% url 'courses:index' %}">首页</a></li>
         <li class="breadcrumb-item"><a href="{% url 'courses:book_detail' section.chapter.book.id %}">{{ section.chapter.book.title }}</a></li>
-        <li class="breadcrumb-item"><a href="{% url 'courses:chapter_detail' section.chapter.id %}">第{{ section.chapter.number }}章 {{ section.chapter.title }}</a></li>
+        <li class="breadcrumb-item"><a href="{% url 'courses:chapter_detail' section.chapter.id %}">第{{ section.chapter.number }}章 </a></li>
         <li class="breadcrumb-item"><a href="{% url 'courses:section_detail' section.id %}">{{ section.number }} {{ section.title }}</a></li>
         <li class="breadcrumb-item active">习题练习</li>
     </ol>
@@ -41,15 +41,30 @@
                                     {% for key, value in exercise.options_dict.items %}
                                     <div class="form-check option-label mb-2">
                                         {% if exercise.type == 'single' %}
-                                        <input class="form-check-input" type="radio" name="exercise_{{ exercise.id }}" id="option_{{ exercise.id }}_{{ key }}" value="{{ key }}">
+                                        <input class="form-check-input" type="radio" name="exercise_{{ exercise.id }}" id="option_{{ exercise.id }}_{{ key }}" value="{{ key }}" data-correct="{{ exercise.answer }}">
                                         {% else %}
-                                        <input class="form-check-input" type="checkbox" name="exercise_{{ exercise.id }}" id="option_{{ exercise.id }}_{{ key }}" value="{{ key }}">
+                                        <input class="form-check-input" type="checkbox" name="exercise_{{ exercise.id }}" id="option_{{ exercise.id }}_{{ key }}" value="{{ key }}" data-correct="{{ exercise.answer }}">
                                         {% endif %}
                                         <label class="form-check-label w-100" for="option_{{ exercise.id }}_{{ key }}">
                                             <strong>{{ key }}.</strong> {{ value|safe }}
                                         </label>
                                     </div>
                                     {% endfor %}
+                                    
+                                    <!-- 添加反馈提示区域 -->
+                                    <div class="feedback mt-2" id="feedback_{{ exercise.id }}" style="display: none;">
+                                        <div class="alert alert-success correct-feedback" style="display: none;">
+                                            <i class="bi bi-check-circle-fill"></i> 回答正确！
+                                        </div>
+                                        <div class="alert alert-danger incorrect-feedback" style="display: none;">
+                                            <i class="bi bi-x-circle-fill"></i> 回答错误，正确答案是：<strong>{{ exercise.answer }}</strong>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- 添加提交按钮 -->
+                                    <button class="btn btn-sm btn-primary mt-2 check-answer" data-exercise-id="{{ exercise.id }}" data-correct-answer="{{ exercise.answer }}">
+                                        提交答案
+                                    </button>
                                 {% else %}
                                     <div class="alert alert-warning">
                                         此题暂无选项数据
@@ -83,12 +98,12 @@
     </div>
     
     <div class="col-md-3">
-        <div class="card sticky-top" style="top: 20px;">
+        <div class="card sticky-top" style="top: 0;">
             <div class="card-body">
                 <h5 class="card-title">练习信息</h5>
                 <p class="card-text">
                     <strong>所属教材：</strong> {{ section.chapter.book.title }}<br>
-                    <strong>所属章节：</strong> 第{{ section.chapter.number }}章 {{ section.chapter.title }}<br>
+                    <strong>所属章节：</strong> 第{{ section.chapter.number }}章 <br>
                     <strong>小节名称：</strong> {{ section.number }} {{ section.title }}<br>
                     <strong>习题数量：</strong> {{ total_count }} 题
                 </p>
@@ -136,6 +151,147 @@ document.querySelectorAll('.show-answer').forEach(button => {
     });
 });
 
+// 处理答案提交和验证
+document.querySelectorAll('.check-answer').forEach(button => {
+    button.addEventListener('click', function() {
+        const exerciseId = this.dataset.exerciseId;
+        const correctAnswer = this.dataset.correctAnswer;
+        const radioInputs = document.querySelectorAll(`input[name="exercise_${exerciseId}"]`);
+        const feedbackDiv = document.getElementById(`feedback_${exerciseId}`);
+        const correctFeedback = feedbackDiv.querySelector('.correct-feedback');
+        const incorrectFeedback = feedbackDiv.querySelector('.incorrect-feedback');
+        
+        // 隐藏之前的反馈
+        feedbackDiv.style.display = 'block';
+        correctFeedback.style.display = 'none';
+        incorrectFeedback.style.display = 'none';
+        
+        // 获取用户的选择
+        let selectedOption = '';
+        radioInputs.forEach(input => {
+            if (input.checked) {
+                selectedOption = input.value;
+            }
+        });
+        
+        // 检查答案
+        if (!selectedOption) {
+            // 如果用户没有选择任何选项
+            alert('请先选择一个选项！');
+            feedbackDiv.style.display = 'none';
+            return;
+        }
+        
+        // 比较答案
+        if (selectedOption === correctAnswer) {
+            // 答案正确
+            correctFeedback.style.display = 'block';
+            // 为正确选项添加绿色边框
+            radioInputs.forEach(input => {
+                if (input.value === correctAnswer) {
+                    input.closest('.form-check').classList.add('border', 'border-success', 'bg-success-subtle', 'p-2');
+                }
+            });
+        } else {
+            // 答案错误
+            incorrectFeedback.style.display = 'block';
+            // 为错误选项添加红色边框，为正确选项添加绿色边框
+            radioInputs.forEach(input => {
+                if (input.value === selectedOption) {
+                    input.closest('.form-check').classList.add('border', 'border-danger', 'bg-danger-subtle', 'p-2');
+                }
+                if (input.value === correctAnswer) {
+                    input.closest('.form-check').classList.add('border', 'border-success', 'bg-success-subtle', 'p-2');
+                }
+            });
+        }
+        
+        // 禁用所有单选按钮，防止再次选择
+        radioInputs.forEach(input => {
+            input.disabled = true;
+        });
+        
+        // 隐藏提交按钮
+        this.style.display = 'none';
+        
+        // 显示完整解析
+        const answerDiv = document.querySelector(`#answer_${exerciseId}`);
+        if (answerDiv) {
+            answerDiv.style.display = 'block';
+            const showAnswerBtn = document.querySelector(`button[data-target="#answer_${exerciseId}"]`);
+            if (showAnswerBtn) {
+                showAnswerBtn.textContent = '隐藏答案';
+            }
+        }
+    });
+});
+
+// 添加重置功能
+document.querySelectorAll('.options').forEach(optionGroup => {
+    // 创建重置按钮
+    const resetButton = document.createElement('button');
+    resetButton.textContent = '重新作答';
+    resetButton.className = 'btn btn-sm btn-outline-secondary mt-2 ms-2 reset-answer';
+    resetButton.style.display = 'none';
+    
+    // 获取练习ID
+    const inputs = optionGroup.querySelectorAll('input');
+    if (inputs.length > 0) {
+        const name = inputs[0].name;
+        const exerciseId = name.split('_')[1];
+        resetButton.setAttribute('data-exercise-id', exerciseId);
+        
+        // 添加到提交按钮后面
+        const checkButton = optionGroup.querySelector(`.check-answer[data-exercise-id="${exerciseId}"]`);
+        if (checkButton) {
+            checkButton.parentNode.insertBefore(resetButton, checkButton.nextSibling);
+        }
+    }
+    
+    // 添加点击事件
+    resetButton.addEventListener('click', function() {
+        const exerciseId = this.dataset.exerciseId;
+        const radioInputs = document.querySelectorAll(`input[name="exercise_${exerciseId}"]`);
+        const feedbackDiv = document.getElementById(`feedback_${exerciseId}`);
+        const checkButton = document.querySelector(`.check-answer[data-exercise-id="${exerciseId}"]`);
+        
+        // 重置单选按钮
+        radioInputs.forEach(input => {
+            input.disabled = false;
+            input.checked = false;
+            input.closest('.form-check').classList.remove('border', 'border-success', 'border-danger', 'bg-success-subtle', 'bg-danger-subtle', 'p-2');
+        });
+        
+        // 隐藏反馈
+        feedbackDiv.style.display = 'none';
+        
+        // 显示提交按钮并隐藏重置按钮
+        checkButton.style.display = 'inline-block';
+        this.style.display = 'none';
+        
+        // 隐藏答案
+        const answerDiv = document.querySelector(`#answer_${exerciseId}`);
+        if (answerDiv) {
+            answerDiv.style.display = 'none';
+            const showAnswerBtn = document.querySelector(`button[data-target="#answer_${exerciseId}"]`);
+            if (showAnswerBtn) {
+                showAnswerBtn.textContent = '查看答案';
+            }
+        }
+    });
+});
+
+// 显示重置按钮
+document.querySelectorAll('.check-answer').forEach(button => {
+    button.addEventListener('click', function() {
+        const exerciseId = this.dataset.exerciseId;
+        const resetButton = document.querySelector(`.reset-answer[data-exercise-id="${exerciseId}"]`);
+        if (resetButton) {
+            resetButton.style.display = 'inline-block';
+        }
+    });
+});
+
 // 平滑滚动到锚点
 document.querySelectorAll('a[href^="#"]').forEach(anchor => {
     anchor.addEventListener('click', function (e) {
@@ -153,4 +309,4 @@ document.querySelectorAll('a[href^="#"]').forEach(anchor => {
     });
 });
 </script>
-{% endblock %} 
+{% endblock %}

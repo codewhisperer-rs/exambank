@@ -12,17 +12,28 @@
     <script>
         MathJax = {
             tex: {
-                inlineMath: [['$', '$'], ['\\\\(', '\\\\)']],
-                displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']],
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']],
                 processEscapes: true,
-                packages: {'[+]': ['ams', 'unicode']}
+                processEnvironments: true,
+                packages: {'[+]': ['ams', 'unicode', 'color']},
+                macros: {
+                    textcircled: ["\\enclose{circle}{#1}", 1]
+                }
+            },
+            options: {
+                skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+                processHtmlClass: 'arithmatex'  // 处理具有 arithmatex 类的元素
             },
             svg: {
                 fontCache: 'global'
             }
         };
     </script>
-    <script id="MathJax-script" async src="https://cdn.bootcdn.net/ajax/libs/mathjax/3.2.0/es5/tex-mml-chtml.min.js"></script>
+    <!-- 使用 jsDelivr CDN 代替 bootcdn -->
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js"></script>
+    <!-- 添加 MathJax 扩展支持 -->
+    <script id="MathJax-extension" async src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/input/tex/extensions/enclose.js"></script>
     <style>
         .navbar-brand img {
             height: 40px;
@@ -75,6 +86,23 @@
         .options .form-check-input:checked ~ .form-check-label strong {
             color: #0d6efd;
         }
+        /* 控制图片大小 */
+        img {
+            max-width: 100%;
+            height: auto;
+        }
+        /* 控制习题内容中的图片 */
+        .exercise-content img, .explanation-content img {
+            max-width: 80%;
+            display: block;
+            margin: 10px auto;
+        }
+        /* 控制markdown内容中的图片 */
+        .markdown-body img {
+            max-width: 80%;
+            display: block;
+            margin: 10px auto;
+        }
     </style>
 </head>
 <body>
@@ -106,7 +134,7 @@
     <!-- 页脚 -->
     <footer class="bg-light py-4 mt-5">
         <div class="container text-center">
-            <p class="mb-0">© 2024 计算机考研题库. All rights reserved.</p>
+            <p class="mb-0">© 2025 计算机考研题库. All rights reserved.</p>
         </div>
     </footer>
 

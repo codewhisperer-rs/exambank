@@ -13,7 +13,7 @@
 </nav>
 
 <div class="row">
-    <div class="col-md-8">
+    <div class="col-md-9">
         <h1 class="mb-4">{{ chapter.title }}</h1>
         
         <div class="list-group">
@@ -33,14 +33,14 @@
         </div>
     </div>
     
-    <div class="col-md-4">
-        <div class="card">
+    <div class="col-md-3">
+        <div class="card sticky-top" style="top: 0;">
             <div class="card-body">
                 <h5 class="card-title">章节信息</h5>
                 <p class="card-text">
                     <strong>所属教材：</strong> {{ chapter.book.title }}<br>
                     <strong>章节编号：</strong> 第{{ chapter.number }}章<br>
-                    <strong>小节数量：</strong> {{ sections.count }}
+                    <strong>小节数量：</strong> {{ filtered_sections_count }}
                 </p>
             </div>
         </div>

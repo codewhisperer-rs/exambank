@@ -7,13 +7,13 @@
     <ol class="breadcrumb">
         <li class="breadcrumb-item"><a href="{% url 'courses:index' %}">首页</a></li>
         <li class="breadcrumb-item"><a href="{% url 'courses:book_detail' section.chapter.book.id %}">{{ section.chapter.book.title }}</a></li>
-        <li class="breadcrumb-item"><a href="{% url 'courses:chapter_detail' section.chapter.id %}">第{{ section.chapter.number }}章 {{ section.chapter.title }}</a></li>
+        <li class="breadcrumb-item"><a href="{% url 'courses:chapter_detail' section.chapter.id %}">第{{ section.chapter.number }}章</a></li>
         <li class="breadcrumb-item active">{{ section.number }} {{ section.title }}</li>
     </ol>
 </nav>
 
 <div class="row">
-    <div class="col-md-8">
+    <div class="col-md-9">
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h1>{{ section.number }} {{ section.title }}</h1>
             <div>
@@ -52,13 +52,13 @@
         {% endif %}
     </div>
     
-    <div class="col-md-4">
-        <div class="card sticky-top" style="top: 20px;">
+    <div class="col-md-3">
+        <div class="card sticky-top" style="top: 0;">
             <div class="card-body">
                 <h5 class="card-title">小节信息</h5>
                 <p class="card-text">
                     <strong>所属教材：</strong> {{ section.chapter.book.title }}<br>
-                    <strong>所属章节：</strong> 第{{ section.chapter.number }}章 {{ section.chapter.title }}<br>
+                    <strong>所属章节：</strong> 第{{ section.chapter.number }}章<br>
                     <strong>知识点数量：</strong> {{ knowledge_points.count }}<br>
                     <strong>习题数量：</strong> {{ exercises_count }}
                 </p>
@@ -66,4 +66,4 @@
         </div>
     </div>
 </div>
-{% endblock %} 
+{% endblock %}

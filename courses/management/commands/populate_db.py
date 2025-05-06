@@ -5,7 +5,7 @@ import json # Import json for options
 from pathlib import Path # Use pathlib for easier path manipulation
 from django.core.management.base import BaseCommand
 from django.conf import settings
-from django.db import transaction # <-- Import transaction
+from django.db import transaction, connections # <-- 添加 connections
 from courses.models import Book, Chapter, Section, Knowledge, Exercise # Add Knowledge and Exercise later if needed
 import logging
 
@@ -29,6 +29,14 @@ class Command(BaseCommand):
         'os': '操作系统',
         # Add other subjects as needed
     }
+
+    def add_arguments(self, parser):
+        # 可选参数：检查数据库连接
+        parser.add_argument(
+            '--check-db',
+            action='store_true',
+            help='只检查数据库连接，不执行导入',
+        )
 
     def process_markdown_images(self, markdown_content, source_file_dir):
         """Finds relative image paths and replaces them with MEDIA_URL paths pointing to media/images/.
@@ -103,19 +111,27 @@ class Command(BaseCommand):
             source_file_dir (str): 源文件目录，用于图片处理。
 
         Returns:
-            dict: 字典，键是题号字符串（如 '01', '02'），值是包含 'answer' 和 'explanation' 的字典。
+            dict: 字典，键是包含题型和题号的复合键（如 'single_01', 'comprehensive_01'），值是包含 'answer' 和 'explanation' 的字典。
         """
         answers_data = {}
+        
+        # 预处理 answers_markdown，移除可能干扰匹配的 #### 和其他标记
+        # 这样不管答案前面是否有 #### 都能正确处理
+        clean_answers_markdown = re.sub(r'(?<=\n)#+\s+\d+\.', r'\n\g<0>', answers_markdown)
+        clean_answers_markdown = re.sub(r'^#+\s+\d+\.', r'\g<0>', clean_answers_markdown)
+        
         # 改进题号匹配模式，支持多种点号格式和编号格式
         # 与parse_and_create_exercises方法保持一致
-        pattern = re.compile(r'^(\d+)[．.．。]?\s*(.*?)\n(.*?)(?=\n\d+[．.．。]?|\Z)', re.MULTILINE | re.DOTALL)
+        # 修复：确保捕获完整内容，分为题号和内容两部分
+        pattern = re.compile(r'^(\d+)[．.．。]?\s*(.*?)(?=\n\d+[．.．。]?|\Z)', re.MULTILINE | re.DOTALL)
         
         current_type = None # To track if we are in 'single' or 'comprehensive'
         # 修改类型标题匹配模式，支持包含章节编号的标题，并保持与parse_and_create_exercises方法一致
-        type_pattern = re.compile(r'^(?:#+\s+|[\d\.]+\s+)?(一、单项选择题|二、综合应用题)', re.MULTILINE)
+        # 更灵活的标题匹配，同时处理有无####的情况
+        type_pattern = re.compile(r'^(?:#+\s+)?(?:[\d\.]+\s+)?(一、单项选择题|二、综合应用题)', re.MULTILINE)
 
         # First, split by type headers if they exist within the answers section
-        parts = type_pattern.split(answers_markdown)
+        parts = type_pattern.split(clean_answers_markdown)
         
         content_parts = []
         if len(parts) == 1: # No type headers found
@@ -124,6 +140,16 @@ class Command(BaseCommand):
              # Start from index 1, step 2 for headers, index 2, step 2 for content
              content_parts = [(parts[i], parts[i+1]) for i in range(1, len(parts), 2)]
 
+        # 如果没有识别到明确的题型，尝试通过答案特征推断题型
+        if len(content_parts) == 1 and content_parts[0][0] == '':
+            content = content_parts[0][1]
+            # 检测是否包含选择题特征（如A.、B.等选项标记）
+            single_choice_pattern = re.compile(r'^\s*([A-D])[．.．。]', re.MULTILINE)
+            if single_choice_pattern.search(content):
+                logger.info(f"    推断答案部分为单项选择题（未发现明确标题）")
+                content_parts = [('一、单项选择题', content)]
+            # 可以添加其他题型特征检测
+
         for header, content in content_parts:
             current_type = None
             if '单项选择题' in header:
@@ -131,56 +157,98 @@ class Command(BaseCommand):
             elif '综合应用题' in header:
                 current_type = 'comprehensive'
 
-            for match in pattern.finditer(content):
-                number_str = match.group(1).zfill(2) # Pad with zero, e.g., '1' -> '01'
-                first_line_content = match.group(2).strip()
-                rest_of_content = match.group(3).strip()
+            # 查找题号前可能出现的 #### 标记并跳过
+            content = re.sub(r'(?<=\n)#+\s+(?=\d+[．.．。]?)', r'\n', content)
+            content = re.sub(r'^#+\s+(?=\d+[．.．。]?)', r'', content)
 
+            # --- 新逻辑：先定位，再切分 (应用于答案提取) --- #
+            answer_starts = []
+            # 严格匹配行首的两位数字题号，用于定位
+            start_pattern = re.compile(r'^(\d{2})[．.．。\s]?', re.MULTILINE)
+            for match in start_pattern.finditer(content):
+                answer_starts.append({'number': match.group(1), 'start_index': match.start()})
+
+            if not answer_starts:
+                logger.warning(f"    在类型 '{current_type or 'unknown'}' 的答案内容块中未找到任何两位数题号。")
+                continue # 跳过这个类型的答案块
+
+            # 遍历起始位置，切分答案内容
+            for i, start_info in enumerate(answer_starts):
+                number_str = start_info['number'] # 已经是两位数了，无需 zfill
+                start_index = start_info['start_index']
+
+                # 确定当前答案的结束位置
+                end_index = answer_starts[i+1]['start_index'] if i + 1 < len(answer_starts) else len(content)
+
+                # 提取这道题的完整答案片段 (包括题号行)
+                full_answer_segment = content[start_index:end_index].strip()
+
+                # 从片段中分离题号和实际答案/解析内容
+                segment_pattern = re.compile(r'^\d{2}[．.．。\s]?\s*(.*)', re.DOTALL)
+                segment_match = segment_pattern.match(full_answer_segment)
+
+                if not segment_match:
+                    logger.error(f"      无法从提取的答案片段中解析题号/内容 (题号: {number_str})。片段开头: {full_answer_segment[:100]}...")
+                    continue
+
+                content_text = segment_match.group(1).strip() # 这就是当前题号对应的完整答案/解析
+
+                # --- 后续处理 (提取答案字母/处理解析) --- #
+                # (这部分逻辑基本保持，但作用于完整的 content_text)
                 answer = ''
                 explanation_raw = ''
 
                 if current_type == 'single':
-                    # For single choice, the answer is usually the first non-whitespace char (A, B, C, D)
+                    # 单选题答案提取逻辑 (基本不变)
+                    content_parts = content_text.split('\n', 1)
+                    first_line_content = content_parts[0].strip()
+                    rest_of_content = content_parts[1].strip() if len(content_parts) > 1 else ""
+
                     answer_match = re.match(r'^\s*([A-D])', first_line_content)
                     if answer_match:
                         answer = answer_match.group(1)
-                        # Explanation starts after the answer letter or on the next line
                         explanation_raw = first_line_content[answer_match.end():].strip()
                         if rest_of_content:
-                           explanation_raw += '\n' + rest_of_content # Append rest if it exists
+                            explanation_raw += '\n' + rest_of_content
                     else:
-                        # If no clear A-D, treat the whole first line as explanation start
-                        answer = '?' # Mark as unknown
-                        logging.warning(f"    Could not find single choice answer (A-D) for question {number_str} in answers. Content: {first_line_content}")
+                        answer = '?'
+                        logger.warning(f"    无法找到单选题答案 (A-D) for question {number_str} in answers. Content: {first_line_content}")
                         explanation_raw = first_line_content
                         if rest_of_content:
-                           explanation_raw += '\n' + rest_of_content
+                            explanation_raw += '\n' + rest_of_content
+
                 elif current_type == 'comprehensive':
-                    # For comprehensive, the first line might be part of the explanation, or a short answer
-                    # Let's assume the first line and rest are explanation for now.
-                    # Answer field might be left empty or handled differently based on specific needs.
-                    answer = '' # Often no simple 'answer', explanation is key
-                    explanation_raw = first_line_content
-                    if rest_of_content:
-                        explanation_raw += '\n' + rest_of_content
-                    # Remove potential leading markers like '【解答】'
+                    # 综合题答案现在是完整的 content_text
+                    answer = '' # 综合题通常没有简单答案字母
+                    explanation_raw = content_text
+                    # 移除可能的引导标记
                     explanation_raw = re.sub(r'^【.*?】\s*', '', explanation_raw).strip()
+                    logger.info(f"    综合应用题答案 {number_str} 按照两位主题号处理，内容完整提取 (长度: {len(explanation_raw)}).")
+
                 else: # Type unknown or implicit
-                     logging.warning(f"    Unknown or missing exercise type header for answer {number_str}. Treating as comprehensive.")
-                     answer = ''
-                     explanation_raw = first_line_content
-                     if rest_of_content:
-                         explanation_raw += '\n' + rest_of_content
-                     explanation_raw = re.sub(r'^【.*?】\s*', '', explanation_raw).strip()
+                    logger.warning(f"    未知或缺失的答案题型 ({number_str}). 视为 comprehensive 处理.")
+                    answer = ''
+                    explanation_raw = content_text
+                    explanation_raw = re.sub(r'^【.*?】\s*', '', explanation_raw).strip()
 
                 # Process images in explanation
                 explanation_processed = self.process_markdown_images(explanation_raw, source_file_dir)
 
-                answers_data[number_str] = {
+                # 使用题型和题号组合键存储
+                type_prefix = current_type if current_type else 'unknown'
+                composite_key = f"{type_prefix}_{number_str}"
+
+                # 存储，确保后续能匹配上
+                answers_data[composite_key] = {
                     'answer': answer,
-                    'explanation': explanation_processed
+                    'explanation': explanation_processed,
+                    'type': type_prefix,
+                    'number': number_str
                 }
-                logging.debug(f"    Extracted Answer/Explanation for {number_str}: Answer='{answer}', Explanation length={len(explanation_processed)}")
+                # 为了兼容可能存在的旧匹配逻辑，也存一份只有数字的key (虽然不推荐)
+                answers_data[number_str] = answers_data[composite_key]
+
+                logging.debug(f"    Extracted Answer/Explanation for {composite_key}: Answer='{answer}', Explanation length={len(explanation_processed)}")
 
         if not answers_data:
              logging.warning(f"    No answers extracted from answer markdown in {source_file_dir}. Content starts: {answers_markdown[:100]}")
@@ -216,6 +284,17 @@ class Command(BaseCommand):
              # Pair up Header and Content: start from index 1, step 2 for headers; index 2, step 2 for content
              content_parts = [(parts[i], parts[i+1]) for i in range(1, len(parts), 2)]
 
+        # 记录每个题型的答案键，用于后续匹配
+        answer_keys_by_type = {}
+        for key in answers_data.keys():
+            if '_' in key:  # 只处理复合键
+                type_part, num_part = key.split('_', 1)
+                if type_part not in answer_keys_by_type:
+                    answer_keys_by_type[type_part] = []
+                answer_keys_by_type[type_part].append(key)
+        
+        logger.info(f"    找到以下题型的答案: {list(answer_keys_by_type.keys())}")
+
         for header, content in content_parts:
             current_type = 'unknown' # Default type
             if '单项选择题' in header:
@@ -225,120 +304,156 @@ class Command(BaseCommand):
             else:
                 logger.warning(f"    Processing exercises under potentially missing/unrecognized header: '{header}'")
 
-            # 改进题目匹配模式，支持多种点号格式和编号格式
-            # 包括"01."和"01．"等格式
-            question_pattern = re.compile(r'^(\d+)[．.．。]?\s*(.*?)(?=\n\d+[．.．。]?|\Z)', re.MULTILINE | re.DOTALL)
+            logger.info(f"    处理题型: {current_type}")
 
-            for match in question_pattern.finditer(content):
-                number_str = match.group(1).zfill(2) # Pad with zero '01', '02' etc.
-                question_raw = match.group(2).strip() # Raw content of the question (including potential options)
+            # --- 新逻辑：先定位，再切分 --- #
 
-                # Process images in the entire raw content FIRST
-                # Image paths in options need processing too.
+            # 1. 找到所有题号的起始位置和题号本身
+            question_starts = []
+            # 严格匹配行首的两位数字题号
+            start_pattern = re.compile(r'^(\d{2})[．.．。\s]?', re.MULTILINE)
+            for match in start_pattern.finditer(content):
+                # 确保捕获的是两位数字题号
+                question_starts.append({'number': match.group(1), 'start_index': match.start()})
+
+            if not question_starts:
+                logger.warning(f"    在类型 {current_type} 的内容块中未找到任何题号。")
+                continue # 跳过这个题型块
+
+            # 2. 遍历起始位置，切分内容
+            for i, start_info in enumerate(question_starts):
+                number_str = start_info['number'].zfill(2) # 格式化题号，例如 '01'
+                start_index = start_info['start_index']
+
+                # 确定当前题目的结束位置：是下一个题目的起始位置，或者是整个内容块的末尾
+                end_index = question_starts[i+1]['start_index'] if i + 1 < len(question_starts) else len(content)
+
+                # 提取这道题的完整片段 (包括题号行)
+                full_question_segment = content[start_index:end_index].strip()
+
+                # 3. 从片段中分离题号和实际内容
+                # 使用一个简单的正则来匹配片段的开头，获取题号之后的所有内容
+                segment_pattern = re.compile(r'^\d+[．.．。\s]?\s*(.*)', re.DOTALL) # DOTALL 确保内容可以跨行
+                segment_match = segment_pattern.match(full_question_segment)
+
+                if not segment_match:
+                     logger.error(f"      无法从提取的片段中解析题号/内容 (题号: {number_str})。片段开头: {full_question_segment[:100]}...")
+                     continue # 跳过这个无法解析的题目
+
+                question_raw = segment_match.group(1).strip() # 这就是当前题目的完整原始 Markdown 内容
+
+                # 处理图片
                 question_raw_processed_images = self.process_markdown_images(question_raw, source_file_dir)
 
-                options_json = None # Initialize options as None
-                question_text_processed = question_raw_processed_images # Default to full content
+                options_json = None # 初始化选项为 None
+                question_text_processed = question_raw_processed_images # 默认为完整内容
                 answer = ''
                 explanation = ''
 
-                # Retrieve answer and explanation from pre-extracted data
-                answer_info = answers_data.get(number_str)
+                # 改进的答案匹配逻辑
+                composite_key = f"{current_type}_{number_str}"
+                answer_info = None
+                
+                # 尝试使用不同的键查找答案，但优先使用相同题型的答案
+                primary_key = composite_key  # 当前题型+题号，最优先
+                
+                fallback_keys = [
+                    number_str,            # 直接使用题号（不推荐，可能混淆不同题型）
+                    f"unknown_{number_str}",  # 未知题型+题号
+                ]
+                
+                # 查找答案，严格按照匹配优先级
+                if primary_key in answers_data:
+                    answer_info = answers_data[primary_key]
+                    logger.info(f"      找到题目 {number_str} ({current_type}) 的答案，使用主键 '{primary_key}'")
+                else:
+                    logger.warning(f"      未找到题目 {number_str} ({current_type}) 对应的主键 '{primary_key}'，尝试备选键")
+                    # 只有在找不到主键的情况下才尝试备选键
+                    for key in fallback_keys:
+                        if key in answers_data:
+                            answer_info = answers_data[key]
+                            logger.info(f"      找到题目 {number_str} ({current_type}) 的答案，使用备选键 '{key}'")
+                            break
+                
                 if answer_info:
                     answer = answer_info.get('answer', '')
-                    explanation = answer_info.get('explanation', '') # Explanation already has images processed
+                    explanation = answer_info.get('explanation', '')
+                    answer_type = answer_info.get('type', 'unknown')
+                    # 检查并警告题型不匹配的情况
+                    if answer_type != current_type and answer_type != 'unknown':
+                        logger.warning(f"      警告：题目 {number_str} 的类型为 {current_type}，但找到的答案类型为 {answer_type}")
+                    
+                    # 对于综合应用题，记录找到的答案信息
+                    if current_type == 'comprehensive':
+                        logger.info(f"      成功匹配综合应用题 {number_str} 的答案，答案长度: {len(explanation)}字符")
                 else:
-                    logger.warning(f"      No answer/explanation found for question number {number_str} in section {section}")
-
+                    logger.warning(f"      No answer/explanation found for question {number_str} in section {section.title} (type: {current_type})")
+                    # 记录所有可用的答案键，帮助调试
+                    type_specific_keys = answer_keys_by_type.get(current_type, [])
+                    all_type_keys_str = "、".join(type_specific_keys[:10])
+                    logger.warning(f"      当前题型 '{current_type}' 的所有答案键: {all_type_keys_str}...")
+                            
                 if current_type == 'single':
                     # --- Robust Option Extraction ---
                     options_dict = {}
-                    question_text_processed = question_raw_processed_images # Default to full content
+                    question_text_processed = question_raw_processed_images
                     first_option_start_index = -1
-
-                    # Method 1: Try matching multiline options first (more reliable if applicable)
                     multiline_pattern = re.compile(r"(?:^|\n)\s*([A-D])[．.．。\s]\s*(.*?)(?=\n\s*[A-D][．.．。\s]|\Z)", re.DOTALL)
                     multiline_matches = list(multiline_pattern.finditer(question_raw_processed_images))
-
                     if len(multiline_matches) >= 2:
                         multiline_matches.sort(key=lambda m: m.start())
                         first_option_start_index = multiline_matches[0].start()
                         for i, match in enumerate(multiline_matches):
                             option_letter = match.group(1)
                             option_content = match.group(2).strip()
-                            option_content = re.sub(r'\n\s*[A-D][．.．。\s].*$', '', option_content).strip() # Clean next marker remnants
+                            option_content = re.sub(r'\n\s*[A-D][．.．。\s].*$', '', option_content).strip()
                             if option_content:
                                 options_dict[option_letter] = option_content
-                        logger.debug(f"      Q{number_str}: Found {len(options_dict)} options using multiline pattern.")
-
-                    # Method 2: If multiline failed or found too few, try marker-based splitting for inline/mixed cases
                     if len(options_dict) < 2:
-                        logger.debug(f"      Q{number_str}: Multiline pattern insufficient. Trying marker-based splitting.")
                         marker_pattern = re.compile(r'([A-D])[．.．。\s]')
                         markers = list(marker_pattern.finditer(question_raw_processed_images))
-                        
                         inline_options_found = {}
-                        if len(markers) >= 2: # Need at least A and B markers
+                        if len(markers) >= 2:
                             markers.sort(key=lambda m: m.start())
-                            first_option_start_index = markers[0].start() # Position of the first marker (e.g., A.)
-                            
+                            first_option_start_index = markers[0].start()
                             for i, marker in enumerate(markers):
                                 option_letter = marker.group(1)
                                 start_pos = marker.end()
                                 end_pos = markers[i+1].start() if i + 1 < len(markers) else len(question_raw_processed_images)
                                 option_content = question_raw_processed_images[start_pos:end_pos].strip()
-                                
-                                # Basic validation: avoid excessively long options which might indicate parsing errors
-                                if option_content and len(option_content) < 300: # Heuristic length limit
+                                if option_content and len(option_content) < 300:
                                     inline_options_found[option_letter] = option_content
                                 else:
                                     logger.warning(f"      Q{number_str}: Suspiciously long or empty content for option {option_letter} via marker splitting. Ignoring.")
-                            
-                            # Use these results only if we found at least two valid options
                             if len(inline_options_found) >= 2:
                                 options_dict = inline_options_found
-                                logger.debug(f"      Q{number_str}: Found {len(options_dict)} options using marker-based splitting.")
                             else:
-                                first_option_start_index = -1 # Reset if this method also failed
-                                logger.debug(f"      Q{number_str}: Marker-based splitting found < 2 valid options.")
+                                first_option_start_index = -1
                         else:
-                            first_option_start_index = -1 # Reset if no markers found
-                            logger.debug(f"      Q{number_str}: Marker-based splitting found < 2 markers.")
+                             first_option_start_index = -1
 
-                    # --- Process results ---
                     if options_dict and first_option_start_index != -1:
-                        # Extract question text based on the start of the first option marker
                         question_text_processed = question_raw_processed_images[:first_option_start_index].strip()
-
-                        # Ensure options are ordered A, B, C, D and clean them
                         ordered_options = {}
                         for letter in ['A', 'B', 'C', 'D']:
                             if letter in options_dict:
                                 clean_content = options_dict[letter].strip(' \t\n\r.-*_')
-                                # Final check: Remove potential leading option letters if they were accidentally included
                                 clean_content = re.sub(r'^[A-D][．.．。\s]\s*', '', clean_content).strip()
                                 if clean_content:
                                     ordered_options[letter] = clean_content
                                 else:
                                     logger.warning(f"      Q{number_str}: Option {letter} content empty after cleaning.")
 
-                        if len(ordered_options) >= 2: # Need at least A and B
+                        if len(ordered_options) >= 2:
                             options_json = json.dumps(ordered_options, ensure_ascii=False)
-                            logger.info(f"      Successfully extracted {len(ordered_options)} options for Q{number_str}.")
                         else:
-                            logger.warning(f"      Q{number_str}: Not enough valid options ({len(ordered_options)}) after cleaning. Reverting.")
                             question_text_processed = question_raw_processed_images
                             options_json = None
-                            options_dict = {} # Clear options
-                    
-                    # Handle cases where no options were reliably extracted by any method
+                            options_dict = {}
                     if not options_dict:
-                         # Check if this is question 24 with sub-questions, known issue
-                         # Note: Adjust target section/question if needed for specific logging
-                         is_special_case = (
-                             (section.title == "内存管理概念" and number_str == "24") or
-                             ('1)' in question_raw_processed_images and '2)' in question_raw_processed_images) 
-                         )
+                         # 只检查特定的已知特殊情况，不再根据子问题标记格式判断
+                         is_special_case = (section.title == "内存管理概念" and number_str == "24")
+                         
                          if is_special_case:
                              logger.warning(f"      Q{number_str} ({section.title}): Known complex format or specific case. Skipping option extraction.")
                          else:
@@ -347,61 +462,64 @@ class Command(BaseCommand):
                          options_json = None
 
                 elif current_type == 'comprehensive':
-                    options_json = None # No options for comprehensive
-                    # Content is already processed for images
+                    options_json = None # 综合应用题没有选项
+                    # 内容已经是完整的了
                     question_text_processed = question_raw_processed_images
-                    # Comprehensive questions might have sub-parts like 1), 2) which remain in the content field.
+                    logger.info(f"      综合应用题 {number_str} 内容已完整提取 (长度: {len(question_text_processed)}).")
 
                 else: # Unknown type
                     options_json = None
-                    question_text_processed = question_raw_processed_images # Assume it's just content
-                    logger.warning(f"      Treating question {number_str} as 'unknown' type due to missing header in section {section}")
+                    question_text_processed = question_raw_processed_images
+                    logger.warning(f"      将题目 {number_str} 作为 'unknown' 类型处理，因为在 section {section} 中缺少有效的题型标题")
 
                 # --- Create Exercise object ---
                 try:
-                    # --- Add detailed logging for specific case ---
-                    log_details = False
-                    target_section_title = "计算机系统层次结构" # Adjust if title differs slightly
-                    target_chapter_number = 1 # Adjust if chapter number differs
-                    target_exercise_number = "01"
-                    if (section.title == target_section_title and 
-                        section.chapter.number == target_chapter_number and 
-                        number_str == target_exercise_number):
-                        log_details = True
-                        logger.info(f"        DEBUG Q{number_str} ({target_section_title}): Preparing to save.")
-                        logger.info(f"          - Type: {current_type}")
-                        logger.info(f"          - Content (start): {question_text_processed[:100]}...")
-                        logger.info(f"          - Options JSON: {options_json}")
-                        logger.info(f"          - Answer: {answer}")
-                        logger.info(f"          - Explanation (start): {explanation[:100]}...")
-                        logger.info(f"          - Order: {exercise_order}")
-                    # --- End detailed logging ---
+                    # 对于综合应用题，添加额外的日志记录
+                    if current_type == 'comprehensive':
+                        logger.info(f"        综合应用题 Q{number_str} 保存前信息:")
+                        logger.info(f"          - 答案长度: {len(explanation)}字符")
+                        logger.info(f"          - 答案开头: {explanation[:100]}...")
+                        logger.info(f"          - 按题号处理，每个题号作为一个独立题目")
 
                     exercise, created = Exercise.objects.update_or_create(
                         section=section,
-                        order=exercise_order, # Use section and global order as the unique key
+                        order=exercise_order, # 使用 section 和全局 order 作为唯一键
                         defaults={
-                            'number': number_str, # Save the original markdown number here
+                            'number': number_str,
                             'type': current_type,
-                            'content': question_text_processed, # This is now the question stem for single choice
-                            'options': options_json, # JSON string or None
+                            'content': question_text_processed,
+                            'options': options_json,
                             'answer': answer,
-                            'explanation': explanation, # Already image-processed from answers_data
-                            # 'order' is now part of the key, no need to repeat in defaults unless updating
+                            'explanation': explanation,
                         }
                     )
                     log_prefix = "Created" if created else "Updated/Found"
-                    logger.info(f"        {log_prefix} Exercise: {section.chapter.book.title} / {section.chapter.title} / {section.title} / Order {exercise_order} (Num: {number_str}, Type: {current_type})") # Adjusted log
-                    self.stdout.write(f"          {log_prefix} Exercise: Order {exercise_order} (Num: {number_str}, Type: {current_type})") # Adjusted stdout
-                    exercise_order += 1
+                    logger.info(f"        {log_prefix} Exercise: {section.chapter.book.title} / {section.chapter.title} / {section.title} / Order {exercise_order} (Num: {number_str}, Type: {current_type})")
+                    self.stdout.write(f"          {log_prefix} Exercise: Order {exercise_order} (Num: {number_str}, Type: {current_type})")
+                    exercise_order += 1 # 移动全局计数器到循环末尾
                 except Exception as e:
-                    logger.error(f"      Error creating/updating exercise Order {exercise_order} (Num: {number_str}) for section {section.title}: {e}") # Adjusted log
-                    self.stderr.write(self.style.ERROR(f"      Error creating/updating exercise Order {exercise_order} (Num: {number_str}): {e}")) # Adjusted stderr
-                    # Optionally re-raise or handle more gracefully if needed
-                    # raise e # Re-raise to stop the command on error
-        logger.info(f"      Finished exercise processing for Section {section.number} ({section.title}). Transaction commit expected.")
+                    logger.error(f"      创建/更新习题时出错 Order {exercise_order} (Num: {number_str}) for section {section.title}: {e}")
+                    self.stderr.write(self.style.ERROR(f"      创建/更新习题时出错 Order {exercise_order} (Num: {number_str}): {e}"))
+                    # raise e # 如果希望出错时停止，可以取消注释
+        logger.info(f"      完成了 Section {section.number} ({section.title}) 的习题处理。")
 
     def handle(self, *args, **options):
+        # 确保数据库可访问
+        try:
+            # 测试数据库连接
+            connections['default'].cursor()
+            logger.info("数据库连接成功")
+            
+            # 如果只是检查数据库，这里就返回
+            if options['check_db']:
+                self.stdout.write(self.style.SUCCESS('数据库连接检查通过，没有进行数据导入'))
+                return
+        except Exception as e:
+            logger.error(f"数据库连接失败: {e}")
+            self.stderr.write(self.style.ERROR(f"数据库连接失败: {e}"))
+            self.stderr.write(self.style.ERROR("请确保数据库文件存在且有正确的访问权限"))
+            return
+
         # Ensure DATA_DIR is absolute for reliable path operations
         self.DATA_DIR = str(Path(self.DATA_DIR).resolve())
         self.stdout.write(self.style.SUCCESS('Starting database population...'))
@@ -443,6 +561,17 @@ class Command(BaseCommand):
                 else:
                     logger.info(f"  Updated/Found Book: {book.title}")
                     self.stdout.write(f"  Updated/Found Book: {book.title}")
+
+                # --- 清理旧的习题数据 --- #
+                # 在处理章节和习题之前，删除该书下所有已存在的习题
+                # 这样可以确保每次运行脚本时，旧的或错误的习题数据被清除
+                logger.info(f"  Clearing existing exercises for Book: {book.title}...")
+                deleted_count, _ = Exercise.objects.filter(section__chapter__book=book).delete()
+                if deleted_count > 0:
+                    logger.info(f"    Deleted {deleted_count} existing exercises for Book: {book.title}")
+                    self.stdout.write(self.style.WARNING(f"    Deleted {deleted_count} existing exercises for Book: {book.title}"))
+                else:
+                    logger.info(f"    No existing exercises found to delete for Book: {book.title}")
 
                 # Call function to populate chapters for this book
                 self.populate_chapters(book, subject_path_obj) # Pass Path object
@@ -739,7 +868,7 @@ class Command(BaseCommand):
                            logger.error("Neither 'parse_and_create_exercises' nor '_process_exercises_for_section' found.")
 
                    except Exception as e:
-                        logger.error(f"Error processing exercises for section {section.title}: {e}", exc_info=True) # Add traceback
+                        logger.error(f"Error processing exercises for section {section.title}: {e}", exc_info=True)
 
                 elif exercises_markdown:
                     logger.warning(f"          Found exercises markdown but no answers markdown for Section {section.number}. Skipping exercise creation.")

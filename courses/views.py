@@ -13,19 +13,33 @@ def book_detail(request, book_id):
     book = get_object_or_404(Book, id=book_id)
     chapters = book.chapters.all().order_by('number')
     
-    # Initialize Markdown converter (same setup as in section_detail)
+    # Initialize Markdown converter with LaTeX support
     md = markdown.Markdown(extensions=[
         'markdown.extensions.extra',
         'markdown.extensions.codehilite',
-        'markdown.extensions.toc' 
-    ])
+        'markdown.extensions.toc', 
+        'pymdownx.arithmatex'  # 添加对 LaTeX 公式的支持
+    ], extension_configs={
+        'pymdownx.arithmatex': {
+            'generic': True  # 使用通用的 MathJax 配置
+        }
+    })
     
-    # 计算所有章节下小节的总数
+    # 计算所有章节下小节的总数（排除章节介绍）
     total_sections = 0
     for chapter in chapters:
         if chapter.introduction:
             chapter.introduction = md.convert(chapter.introduction)
-        total_sections += chapter.sections.count()
+        
+        # 为每个章节计算实际小节数量（排除章节介绍）
+        filtered_count = 0
+        for section in chapter.sections.all():
+            if section.title != "章节介绍" and section.number != f"{chapter.number}.0":
+                filtered_count += 1
+        
+        # 将过滤后的小节数量保存到章节对象中，供模板使用
+        chapter.filtered_sections_count = filtered_count
+        total_sections += filtered_count
             
     return render(request, 'courses/book_detail.html', {
         'book': book,
@@ -37,9 +51,17 @@ def chapter_detail(request, chapter_id):
     """章节详情页，显示小节列表"""
     chapter = get_object_or_404(Chapter, id=chapter_id)
     sections = chapter.sections.all().order_by('number')
+    
+    # 计算实际小节数量（排除章节介绍）
+    filtered_sections_count = 0
+    for section in sections:
+        if section.title != "章节介绍" and section.number != f"{chapter.number}.0":
+            filtered_sections_count += 1
+    
     return render(request, 'courses/chapter_detail.html', {
         'chapter': chapter,
-        'sections': sections
+        'sections': sections,
+        'filtered_sections_count': filtered_sections_count
     })
 
 def section_detail(request, section_id):
@@ -48,12 +70,17 @@ def section_detail(request, section_id):
     knowledge_points = section.knowledge_points.all().order_by('order')
     exercises_count = section.exercises.count()
     
-    # 转换Markdown为HTML
+    # 转换Markdown为HTML，添加对 LaTeX 公式的支持
     md = markdown.Markdown(extensions=[
         'markdown.extensions.extra',
         'markdown.extensions.codehilite',
-        'markdown.extensions.toc'
-    ])
+        'markdown.extensions.toc',
+        'pymdownx.arithmatex'  # 添加对 LaTeX 公式的支持
+    ], extension_configs={
+        'pymdownx.arithmatex': {
+            'generic': True  # 使用通用的 MathJax 配置
+        }
+    })
     
     for knowledge in knowledge_points:
         knowledge.content = md.convert(knowledge.content)
@@ -69,12 +96,17 @@ def section_exercises(request, section_id):
     section = get_object_or_404(Section, id=section_id)
     exercises = section.exercises.all().order_by('order', 'number')
     
-    # 转换Markdown为HTML
+    # 转换Markdown为HTML，添加对 LaTeX 公式的支持
     md = markdown.Markdown(extensions=[
         'markdown.extensions.extra',
         'markdown.extensions.codehilite',
-        'markdown.extensions.toc'
-    ])
+        'markdown.extensions.toc',
+        'pymdownx.arithmatex'  # 添加对 LaTeX 公式的支持
+    ], extension_configs={
+        'pymdownx.arithmatex': {
+            'generic': True  # 使用通用的 MathJax 配置
+        }
+    })
     
     # 获取当前小节中存在的题型
     exercise_types = exercises.values_list('type', flat=True).distinct()
