@@ -11,6 +11,9 @@ urlpatterns = [
     path('section/<int:section_id>/exercises/', views.section_exercises, name='section_exercises'),
     path('submit_attempt/', views.submit_exercise_attempt, name='submit_exercise_attempt'),
     
+    # 知识图谱
+    path('knowledge-graph/', views.knowledge_graph, name='knowledge_graph'),
+    
     # 用户错题集相关的URL
     path('mistake_collection/', views.user_mistake_collection, name='mistake_collection'),
     path('remove_from_mistakes/', views.remove_from_mistake_collection, name='remove_from_mistakes'),

@@ -2065,3 +2065,43 @@ def get_grading_prompt(question, correct_answer, user_answer):
 
 请务必客观公正地评分，不要过于严格或宽松。
 """
+
+def knowledge_graph(request):
+    """展示知识图谱页面"""
+    books = Book.objects.all()[:4]  # 获取前4本书
+    
+    # 准备数据格式
+    graph_data = {
+        "center": {"id": "center", "name": "知识体系", "type": "center"},
+        "books": [],
+    }
+    
+    for book in books:
+        book_node = {"id": f"book_{book.id}", "name": book.title, "type": "book"}
+        chapters = []
+        
+        for chapter in book.chapters.all():
+            chapter_node = {"id": f"chapter_{chapter.id}", "name": f"第{chapter.number}章 {chapter.title}", "type": "chapter"}
+            sections = []
+            
+            # 过滤掉"章节介绍"类型的小节
+            for section in chapter.sections.exclude(section_type='introduction'):
+                # 也可以根据标题过滤: chapter.sections.exclude(title__contains='介绍')
+                section_node = {"id": f"section_{section.id}", "name": f"{section.number} {section.title}", "type": "section"}
+                sections.append(section_node)
+            
+            # 只有当章节下有有效小节时才添加章节节点
+            if sections:
+                chapter_node["children"] = sections
+                chapters.append(chapter_node)
+        
+        # 只有当书下有有效章节时才添加书籍节点
+        if chapters:
+            book_node["children"] = chapters
+            graph_data["books"].append(book_node)
+    
+    context = {
+        'graph_data': graph_data,
+    }
+    
+    return render(request, 'courses/knowledge_graph.html', context)
