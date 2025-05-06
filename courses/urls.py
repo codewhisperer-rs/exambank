@@ -41,4 +41,7 @@ urlpatterns = [
     
     # 新增 - 习题反馈
     path('submit-exercise-feedback/', views.submit_exercise_feedback, name='submit_exercise_feedback'),
+    
+    # 新增 - 大模型判分API
+    path('api/ai-grade/', views.ai_grade_comprehensive, name='ai_grade'),
 ] 

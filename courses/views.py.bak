@@ -12,23 +12,6 @@ from django.views.decorators.csrf import csrf_exempt  # 添加CSRF豁免装饰�
 from django.db.models import Count, Q, F, Sum, Case, When, Value, IntegerField
 from django.utils import timezone
 import markdown
-import re
-import html
-
-# 尝试导入markdownify，如果失败则提供一个简单的替代函数
-try:
-    from markdownify import markdownify as md_convert
-except ImportError:
-    # 提供一个简单的替代函数，用于处理HTML文本
-    def md_convert(html_text):
-        # 移除HTML标签，保留文本内容
-        text = re.sub(r'<[^>]*>', ' ', html_text)
-        # 替换HTML实体
-        text = html.unescape(text)
-        # 清理多余空格
-        text = re.sub(r'\s+', ' ', text).strip()
-        return text
-
 # 导入所有需要的模型
 from .models import Book, Chapter, Section, Exercise, Knowledge, UserMistakeCollection, ExerciseKnowledge, ExerciseAttempt, AIGeneratedExercise, AIExerciseAttempt, ExerciseFeedback
 import logging
@@ -36,6 +19,7 @@ import time
 from django.core.paginator import Paginator
 from django.contrib import messages
 import random
+import re
 import traceback
 import uuid
 from datetime import datetime, timedelta
@@ -1838,33 +1822,22 @@ async def ai_grade_comprehensive(request):
             # 调用大模型API进行评分
             score, feedback = await call_llm_api_for_grading_async(question_content, correct_answer, user_answer, model_type)
             
-            # 使用sync_to_async正确检查用户认证状态
-            is_authenticated = False
-            try:
-                is_authenticated = await sync_to_async(lambda: request.user.is_authenticated)()
-            except Exception as auth_error:
-                logger.warning(f"检查用户认证状态失败: {str(auth_error)}")
-            
             # 如果用户已登录，保存做题记录
-            if is_authenticated:
-                try:
-                    # 创建尝试记录
-                    await sync_to_async(ExerciseAttempt.objects.create)(
-                        user=request.user,
-                        exercise=exercise,
-                        user_answer=user_answer,
-                        is_correct=score >= 7  # 如果得分达到7分以上，认为基本正确
-                    )
-                except Exception as db_error:
-                    # 记录错误但继续处理，不影响评分结果返回
-                    logger.error(f"保存答题记录失败: {str(db_error)}")
+            if request.user.is_authenticated:
+                await sync_to_async(ExerciseAttempt.objects.create)(
+                    user=request.user,
+                    exercise=exercise,
+                    answer=user_answer,
+                    is_correct=score >= 7,  # 如果得分达到7分以上，认为基本正确
+                    timestamp=timezone.now()
+                )
             
             # 返回评分结果
             return JsonResponse({
                 'status': 'success',
                 'score': score,
                 'feedback': feedback,
-                'correct_answer': md_convert(correct_answer),
+                'correct_answer': markdownify(correct_answer),
                 'model_used': model_type
             })
         except ValueError as e:
@@ -1904,8 +1877,8 @@ async def call_llm_api_for_grading_async(question, correct_answer, user_answer, 
     try:
         # 根据指定模型类型选择API
         if model_type == 'grok':
-            api_key = "xai-5VGZ4fJ6XxLxQ6y5yIgwGxa8sUwUv23UszOulhIUJeSPAsXENcTs8wTZiZ8bbRJYWc7T5SNBzJ5sMMMT"
-            api_url = "https://api.x.ai/v1/chat/completions"
+            api_key = GROK_API_KEY
+            api_url = GROK_API_URL
             model_name = "grok-3-fast-beta"
             headers = {
                 "Authorization": f"Bearer {api_key}",
@@ -1927,8 +1900,8 @@ async def call_llm_api_for_grading_async(question, correct_answer, user_answer, 
                 "max_tokens": 1000
             }
         else:  # 使用deepseek或其他模型
-            api_key = "sk-0a05970e93264dffa93f31f9916245a7"   
-            api_url = "https://api.deepseek.com/chat/completions"
+            api_key = DEEPSEEK_API_KEY
+            api_url = "https://api.deepseek.com/v1/chat/completions"
             model_name = "deepseek-chat"
             headers = {
                 "Authorization": f"Bearer {api_key}",
@@ -1951,30 +1924,13 @@ async def call_llm_api_for_grading_async(question, correct_answer, user_answer, 
             logger.error(f"未配置{model_type.upper()}API密钥")
             raise ValueError(f"未配置{model_type.upper()}API密钥，请联系管理员")
         
-        # 使用单独的错误处理函数包装API调用
-        return await safe_api_call(api_url, headers, payload, model_type)
-                
-    except asyncio.TimeoutError:
-        error_msg = f"{model_type.upper()}API调用超时"
-        logger.error(error_msg)
-        raise ValueError(error_msg)
-    except Exception as e:
-        error_msg = f"调用{model_type.upper()}API错误: {str(e)}"
-        logger.error(error_msg)
-        logger.error(traceback.format_exc())
-        raise ValueError(error_msg)
-
-async def safe_api_call(api_url, headers, payload, model_type):
-    """
-    安全的API调用封装，处理多种可能的错误情况
-    """
-    try:
+        # 异步发送请求
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 api_url,
                 headers=headers,
                 json=payload,
-                timeout=60  # 60秒超时
+                timeout=30  # 30秒超时
             ) as response:
                 if response.status == 200:
                     response_data = await response.json()
@@ -1985,8 +1941,6 @@ async def safe_api_call(api_url, headers, payload, model_type):
                     else:  # deepseek
                         ai_response = response_data.get('choices', [{}])[0].get('message', {}).get('content', '')
                     
-                    logger.info(f"获取到{model_type.upper()}模型回复: {ai_response[:100]}...")
-                    
                     # 解析AI回复中的分数
                     score_match = re.search(r'分数[:：]\s*(\d+)', ai_response)
                     if score_match:
@@ -1994,45 +1948,28 @@ async def safe_api_call(api_url, headers, payload, model_type):
                         # 确保分数在0-10范围内
                         score = max(0, min(score, 10))
                     else:
-                        # 如果找不到明确的分数标记，尝试其他可能的格式
-                        # 尝试查找独立的数字（通常是分数）
-                        alt_score_match = re.search(r'[^\d](\d{1,2})[^\d]', ai_response)
-                        if alt_score_match:
-                            potential_score = int(alt_score_match.group(1))
-                            # 只接受0-10范围内的数字作为分数
-                            if 0 <= potential_score <= 10:
-                                score = potential_score
-                            else:
-                                score = 5  # 默认中等分数
-                        else:
-                            # 如果仍然找不到，基于文本内容估计分数
-                            if any(word in ai_response.lower() for word in ['优秀', '完美', '出色', '非常好']):
-                                score = 9
-                            elif any(word in ai_response.lower() for word in ['良好', '基本正确', '好']):
-                                score = 7
-                            elif any(word in ai_response.lower() for word in ['一般', '部分正确', '不完整']):
-                                score = 5
-                            else:
-                                score = 5  # 默认中等分数
+                        score = 5  # 默认中等分数
                     
                     # 去除分数部分，保留评价
                     feedback = re.sub(r'分数[:：]\s*\d+', '', ai_response).strip()
                     
-                    # 如果反馈内容太短，可能是解析出了问题，保留原始回复
-                    if len(feedback) < 20:
-                        feedback = ai_response
-                    
-                    return score, md_convert(feedback)
+                    return score, markdownify(feedback)
                 else:
                     # API调用失败
                     response_text = await response.text()
                     error_msg = f"{model_type.upper()}API调用失败: HTTP {response.status} - {response_text}"
                     logger.error(error_msg)
                     raise ValueError(error_msg)
-    except aiohttp.ClientError as e:
-        raise ValueError(f"{model_type.upper()}API连接错误: {str(e)}")
+                
+    except asyncio.TimeoutError:
+        error_msg = f"{model_type.upper()}API调用超时"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
     except Exception as e:
-        raise ValueError(f"{model_type.upper()}API处理错误: {str(e)}")
+        error_msg = f"调用{model_type.upper()}API错误: {str(e)}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        raise ValueError(error_msg)
 
 def get_grading_prompt(question, correct_answer, user_answer):
     """
@@ -2051,17 +1988,41 @@ def get_grading_prompt(question, correct_answer, user_answer):
 {user_answer}
 
 请根据学生答案与标准答案的匹配程度，为学生的回答评分(0-10分)，并提供详细的评分解释。
+你的回复应包含两部分：
+1. 分数：一个0到10的整数
+2. 评价：对学生答案的详细分析和改进建议
 
-请严格按照以下格式返回：
-1. 第一行必须包含"分数：X"，其中X为0到10的整数
-2. 然后空一行
-3. 接下来是评价内容，详细分析学生答案与标准答案的差异和优缺点
-
-判分标准：
-- 0-3分：答案与标准答案相差很大，缺少关键概念或核心要点
-- 4-6分：答案包含部分关键概念，但不完整或有一些错误
-- 7-8分：答案基本正确，包含大部分关键概念，可能有小错误或不够全面
-- 9-10分：答案非常完善，涵盖所有关键概念，表述准确清晰
-
-请务必客观公正地评分，不要过于严格或宽松。
+请确保分数公正合理，评价内容具有建设性。
 """
+
+async def simulate_ai_grading_async(question, correct_answer, user_answer):
+    """
+    当无法连接API时，模拟大模型评分 (异步版本)
+    """
+    # 简单评估用户答案与正确答案的相似性
+    user_answer_words = set(user_answer.lower().split())
+    correct_answer_words = set(correct_answer.lower().split())
+    
+    # 计算共同单词的比例
+    if len(correct_answer_words) > 0:
+        common_words = user_answer_words.intersection(correct_answer_words)
+        similarity = len(common_words) / len(correct_answer_words)
+        
+        # 计算得分 (0-10)
+        score = min(round(similarity * 10), 10)
+    else:
+        score = 5  # 默认中等分数
+    
+    # 异步暂停一小段时间，模拟API调用延迟
+    await asyncio.sleep(0.5)
+    
+    # 生成反馈
+    if score >= 8:
+        feedback = "您的答案非常好，与标准答案高度匹配。"
+    elif score >= 6:
+        feedback = "您的答案基本正确，但还有改进空间。请注意标准答案中的关键点。"
+    else:
+        feedback = "您的答案与标准答案有较大差距，建议仔细阅读标准答案，理解关键概念。"
+    
+    return score, feedback
+

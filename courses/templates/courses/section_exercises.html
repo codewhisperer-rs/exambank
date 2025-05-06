@@ -81,6 +81,44 @@
                                     {% endif %}
                                 </div>
                             </div>
+                            {% elif exercise.type == 'comprehensive' %}
+                            <div id="exercise-form-{{ exercise.id }}">
+                                <div class="mt-3">
+                                    <!-- 综合题文本输入框 -->
+                                    <div class="mb-3">
+                                        <textarea class="form-control" id="text-answer-{{ exercise.id }}" rows="6" placeholder="请在此输入答案..."></textarea>
+                                    </div>
+                                    
+                                    <!-- 添加结果显示区域 -->
+                                    <div id="exercise-result-{{ exercise.id }}"></div>
+                                    
+                                    <!-- 添加加载指示器 -->
+                                    <div id="loading-indicator-{{ exercise.id }}" class="text-center mt-2" style="display: none;">
+                                        <div class="spinner-border text-primary" role="status">
+                                            <span class="visually-hidden">加载中...</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- 按钮区域 -->
+                                    <div class="d-flex gap-2 mt-2">
+                                        <!-- 保存按钮 -->
+                                        <button id="save-btn-{{ exercise.id }}" class="btn btn-secondary save-answer" data-exercise-id="{{ exercise.id }}">
+                                            <i class="bi bi-save"></i> 保存答案
+                                        </button>
+                                        
+                                        <!-- 大模型判分按钮组 -->
+                                        <div class="dropdown">
+                                            <button id="ai-grade-btn-{{ exercise.id }}" class="btn btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                                <i class="bi bi-robot"></i> 大模型判分 <span class="caret"></span>
+                                            </button>
+                                            <ul class="dropdown-menu">
+                                                <li><button class="dropdown-item ai-grade-model" type="button" data-exercise-id="{{ exercise.id }}" data-model-type="grok">Grok判分 (默认)</button></li>
+                                                <li><button class="dropdown-item ai-grade-model" type="button" data-exercise-id="{{ exercise.id }}" data-model-type="deepseek">DeepSeek判分</button></li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                             {% endif %}
                         
                             <div class="answer mt-3" style="display: none;" id="answer_{{ exercise.id }}">
@@ -421,6 +459,230 @@ window.addEventListener('beforeunload', function() {
         }
     }
 });
+
+// 综合题功能：加载保存的答案
+document.addEventListener('DOMContentLoaded', function() {
+    // 查找所有综合题的输入框
+    document.querySelectorAll('textarea[id^="text-answer-"]').forEach(textarea => {
+        const exerciseId = textarea.id.replace('text-answer-', '');
+        
+        // 从localStorage中获取保存的答案
+        const savedAnswer = localStorage.getItem(`comprehensive_answer_${exerciseId}`);
+        if (savedAnswer) {
+            textarea.value = savedAnswer;
+        }
+    });
+    
+    // 为保存按钮添加事件监听器
+    document.querySelectorAll('.save-answer').forEach(button => {
+        button.addEventListener('click', function() {
+            const exerciseId = this.dataset.exerciseId;
+            const textarea = document.getElementById(`text-answer-${exerciseId}`);
+            
+            if (textarea) {
+                // 保存到localStorage
+                localStorage.setItem(`comprehensive_answer_${exerciseId}`, textarea.value);
+                
+                // 显示保存成功提示
+                const resultDiv = document.getElementById(`exercise-result-${exerciseId}`);
+                if (resultDiv) {
+                    resultDiv.innerHTML = `
+                        <div class="alert alert-success mt-3">
+                            <i class="bi bi-check-circle"></i> 答案已保存
+                        </div>
+                    `;
+                    
+                    // 3秒后自动隐藏提示
+                    setTimeout(() => {
+                        resultDiv.innerHTML = '';
+                    }, 3000);
+                }
+            }
+        });
+    });
+    
+    // 为大模型判分按钮添加事件监听器
+    document.querySelectorAll('.ai-grade-model').forEach(button => {
+        button.addEventListener('click', function(e) {
+            const exerciseId = this.dataset.exerciseId;
+            const modelType = this.dataset.modelType;
+            const textarea = document.getElementById(`text-answer-${exerciseId}`);
+            
+            if (!textarea || !textarea.value.trim()) {
+                alert('请先输入答案');
+                return;
+            }
+            
+            // 更新按钮文本，显示当前选择的模型
+            const mainButton = document.getElementById(`ai-grade-btn-${exerciseId}`);
+            if (mainButton) {
+                mainButton.innerHTML = `<i class="bi bi-robot"></i> ${modelType === 'grok' ? 'Grok判分中...' : 'DeepSeek判分中...'}`;
+            }
+            
+            // 调用指定模型进行判分
+            gradeWithAI(exerciseId, textarea.value.trim(), modelType);
+        });
+    });
+});
+
+// 全局判分队列状态
+const gradingStatus = {};
+
+// 通用AI判分函数
+function gradeWithAI(exerciseId, userAnswer, modelType) {
+    // 如果该习题正在判分中，提示用户稍后再试
+    if (gradingStatus[exerciseId]) {
+        alert('此题正在判分中，请稍候');
+        return;
+    }
+    
+    // 标记该习题正在判分中
+    gradingStatus[exerciseId] = true;
+    
+    // 禁用相关按钮
+    const mainButton = document.getElementById(`ai-grade-btn-${exerciseId}`);
+    const originalButtonText = mainButton ? mainButton.innerHTML : '<i class="bi bi-robot"></i> 大模型判分';
+    
+    if (mainButton) {
+        mainButton.disabled = true;
+        mainButton.innerHTML = `<i class="bi bi-robot"></i> ${modelType === 'grok' ? 'Grok判分中...' : 'DeepSeek判分中...'}`;
+    }
+    
+    // 禁用下拉菜单中的所有选项
+    document.querySelectorAll(`.ai-grade-model[data-exercise-id="${exerciseId}"]`).forEach(item => {
+        item.disabled = true;
+    });
+    
+    // 显示加载指示器
+    const loadingIndicator = document.getElementById(`loading-indicator-${exerciseId}`);
+    if (loadingIndicator) {
+        loadingIndicator.style.display = 'block';
+    }
+    
+    // 显示正在使用的模型信息
+    const resultDiv = document.getElementById(`exercise-result-${exerciseId}`);
+    if (resultDiv) {
+        resultDiv.innerHTML = `
+            <div class="alert alert-info mt-3">
+                <div class="d-flex align-items-center">
+                    <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                    <span>正在使用 ${modelType.toUpperCase()} 模型进行评分，请稍候...</span>
+                </div>
+            </div>
+        `;
+    }
+    
+    // 构造请求数据
+    const data = {
+        exercise_id: exerciseId,
+        user_answer: userAnswer,
+        model_type: modelType
+    };
+    
+    // 发送AJAX请求到后端
+    fetch('/api/ai-grade/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        // 重置判分状态
+        gradingStatus[exerciseId] = false;
+        
+        // 隐藏加载指示器
+        if (loadingIndicator) {
+            loadingIndicator.style.display = 'none';
+        }
+        
+        // 启用按钮
+        if (mainButton) {
+            mainButton.disabled = false;
+            mainButton.innerHTML = originalButtonText;
+        }
+        
+        // 恢复下拉菜单选项
+        document.querySelectorAll(`.ai-grade-model[data-exercise-id="${exerciseId}"]`).forEach(item => {
+            item.disabled = false;
+        });
+        
+        // 显示结果
+        if (resultDiv) {
+            if (data.status === 'success') {
+                // 成功判分
+                resultDiv.innerHTML = `
+                    <div class="alert alert-primary mt-3">
+                        <h5>
+                            <span class="badge bg-primary">${data.score}/10</span>
+                            <small class="text-muted ms-2">由 ${data.model_used.toUpperCase()} 模型评分</small>
+                        </h5>
+                        <hr>
+                        <h6>评价:</h6>
+                        <div class="markdown-body mt-2">${data.feedback}</div>
+                        ${data.correct_answer ? `
+                        <hr>
+                        <h6>参考答案:</h6>
+                        <div class="markdown-body mt-2">${data.correct_answer}</div>
+                        ` : ''}
+                    </div>
+                `;
+            } else {
+                // 判分失败
+                resultDiv.innerHTML = `
+                    <div class="alert alert-danger mt-3">
+                        <h5><i class="bi bi-exclamation-triangle-fill me-2"></i>评分失败</h5>
+                        <p>${
+                            data.error.includes('markdownify') ? 
+                            '系统错误：Markdown处理组件未正确配置，请联系管理员安装markdownify库' : 
+                            data.error.includes('async context') ?
+                            '系统错误：异步处理冲突，请联系管理员修复异步调用问题' :
+                            data.error.includes('API') ?
+                            `API错误: 调用${modelType.toUpperCase()}API错误: ${data.error}` :
+                            data.error || '服务器错误，请稍后再试'
+                        }</p>
+                        <p class="mt-2 mb-0"><small class="text-muted">请联系管理员配置 ${modelType.toUpperCase()} API，或尝试使用其他模型</small></p>
+                    </div>
+                `;
+            }
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        
+        // 重置判分状态
+        gradingStatus[exerciseId] = false;
+        
+        // 隐藏加载指示器
+        if (loadingIndicator) {
+            loadingIndicator.style.display = 'none';
+        }
+        
+        // 恢复按钮原始状态
+        if (mainButton) {
+            mainButton.disabled = false;
+            mainButton.innerHTML = originalButtonText;
+        }
+        
+        // 恢复下拉菜单选项
+        document.querySelectorAll(`.ai-grade-model[data-exercise-id="${exerciseId}"]`).forEach(item => {
+            item.disabled = false;
+        });
+        
+        // 显示错误信息
+        if (resultDiv) {
+            resultDiv.innerHTML = `
+                <div class="alert alert-danger mt-3">
+                    <h5><i class="bi bi-exclamation-triangle-fill me-2"></i>网络错误</h5>
+                    <p>无法连接到评分服务，请稍后再试</p>
+                    <p class="mt-2 mb-0"><small class="text-muted">错误详情: ${error.message || '未知错误'}</small></p>
+                </div>
+            `;
+        }
+    });
+}
 
 // 反馈功能的处理
 document.querySelectorAll('.feedback-btn').forEach(button => {
