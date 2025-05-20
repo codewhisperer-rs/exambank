@@ -18,6 +18,16 @@ from django.urls import reverse_lazy
 from django.contrib.auth import login
 from django.contrib import messages
 from .forms import RegisterForm
+from django.db import IntegrityError
+import logging
+import time
+from django.core.paginator import Paginator
+from django.contrib import messages
+import random
+import traceback
+import uuid
+from datetime import datetime, timedelta
+from collections import defaultdict
 
 # 尝试导入markdownify，如果失败则提供一个简单的替代函数
 try:
@@ -35,15 +45,6 @@ except ImportError:
 
 # 导入所有需要的模型
 from .models import Book, Chapter, Section, Exercise, Knowledge, UserMistakeCollection, ExerciseKnowledge, ExerciseAttempt, AIGeneratedExercise, AIExerciseAttempt, ExerciseFeedback
-import logging
-import time
-from django.core.paginator import Paginator
-from django.contrib import messages
-import random
-import traceback
-import uuid
-from datetime import datetime, timedelta
-from collections import defaultdict
 
 # 替换配置
 # Grok API配置
@@ -2147,37 +2148,51 @@ def register_view(request):
     if request.method == 'POST':
         form = RegisterForm(request.POST)
         if form.is_valid():
-            user = form.save()
-            login(request, user)  # 注册后自动登录
-            
-            # 检查是否是AJAX请求
-            is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
-            
-            if is_ajax:
-                # 如果是AJAX请求，返回JSON响应
-                return JsonResponse({
-                    'success': True,
-                    'message': '注册成功',
-                    'redirect_url': reverse_lazy('courses:index')
-                })
-            else:
-                # 常规请求处理
-                messages.success(request, '注册成功')
-                return redirect('courses:index')
+            try:
+                user = form.save() # commit=True by default in your form's save
+                logger.info(f'User {user.username} (ID: {user.id}) created and saved successfully.') # 新增日志
+                login(request, user)  # 注册后自动登录
+                
+                is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+                
+                if is_ajax:
+                    return JsonResponse({
+                        'success': True,
+                        'message': '注册成功',
+                        'redirect_url': reverse_lazy('courses:index')
+                    })
+                else:
+                    messages.success(request, '注册成功')
+                    return redirect('courses:index')
+            except IntegrityError as e: # 捕获 IntegrityError
+                logger.warning(f'IntegrityError during registration for username: {form.cleaned_data.get("username")}. Error: {e}') # 新增日志
+                form.add_error('username', '该用户名已存在，请选择其他用户名。')
+                if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    errors = {field: [str(error) for error in error_list] for field, error_list in form.errors.items()}
+                    return JsonResponse({
+                        'success': False,
+                        'errors': errors,
+                        'message': '请修正表单中的错误'
+                    }, status=400)
+                else:
+                    return render(request, 'courses/register.html', {'form': form})
         else:
             # 表单验证失败
+            logger.warning(f'Registration form invalid for username: {request.POST.get("username")}. Errors: {form.errors.as_json()}') # 新增日志
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                # 返回JSON格式的错误信息
-                errors = {}
-                for field, error_list in form.errors.items():
-                    errors[field] = [str(error) for error in error_list]
-                
+                errors = {field: [str(error) for error in error_list] for field, error_list in form.errors.items()}
                 return JsonResponse({
                     'success': False,
                     'errors': errors,
                     'message': '请修正表单中的错误'
                 }, status=400)
+            # else: 
+            #     return render(request, 'courses/register.html', {'form': form})
     else:
         form = RegisterForm()
     
     return render(request, 'courses/register.html', {'form': form})
+# 添加关于我页面视图函数
+def about_me_view(request):
+    """显示关于我页面，包含视频和介绍信息"""
+    return render(request, 'courses/about_me.html')

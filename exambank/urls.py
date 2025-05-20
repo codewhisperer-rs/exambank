@@ -19,11 +19,25 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-from courses.views import register_view
+from courses.views import register_view, about_me_view
+from django.contrib.auth import views as auth_views # Import auth_views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('', about_me_view, name='home'), # 'about_me_view' is the homepage
+
+    # Override the default login view to redirect authenticated users
+    path(
+        'accounts/login/',
+        auth_views.LoginView.as_view(
+            template_name='registration/login.html', # Explicitly point to your custom template
+            redirect_authenticated_user=True
+        ),
+        name='login'
+    ),
+    # Include other default auth URLs (logout, password change, password reset, etc.)
     path('accounts/', include('django.contrib.auth.urls')),
+
     path('register/', register_view, name='register'),
-    path('', include('courses.urls')),
+    path('courses/', include('courses.urls')), # Main application content
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

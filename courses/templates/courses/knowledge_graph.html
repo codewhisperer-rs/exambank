@@ -233,13 +233,13 @@ document.addEventListener('DOMContentLoaded', function() {
         // 根据节点类型和ID跳转到相应页面
         if (d.data.type === 'book') {
           const bookId = d.data.id.split('_')[1];
-          window.open('/book/' + bookId + '/', '_blank');
+          window.open('{% url "courses:book_detail" book_id=0 %}'.replace('0', bookId), '_blank');
         } else if (d.data.type === 'chapter') {
           const chapterId = d.data.id.split('_')[1];
-          window.open('/chapter/' + chapterId + '/', '_blank');
+          window.open('{% url "courses:chapter_detail" chapter_id=0 %}'.replace('0', chapterId), '_blank');
         } else if (d.data.type === 'section') {
           const sectionId = d.data.id.split('_')[1];
-          window.open('/section/' + sectionId + '/', '_blank');
+          window.open('{% url "courses:section_detail" section_id=0 %}'.replace('0', sectionId), '_blank');
         }
       });
     

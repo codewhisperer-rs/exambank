@@ -74,6 +74,13 @@
         </form>
         
         <div class="mt-3 text-center">
+          <p>
+            <a href="{% url 'home' %}" class="btn btn-outline-info btn-sm">
+              <i class="bi bi-info-circle me-1"></i>了解更多关于我们
+            </a>
+          </p>
+        </div>
+        <div class="mt-3 text-center">
           <p>已有账户？<a href="{% url 'login' %}">登录</a></p>
         </div>
       </div>
@@ -90,12 +97,47 @@
     const loadingIndicator = document.getElementById('loading-indicator');
     const registerBtn = document.getElementById('register-btn');
     
+    // Function to get CSRF token from cookies
+    function getCookie(name) {
+      let cookieValue = null;
+      if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+          const cookie = cookies[i].trim();
+          // Does this cookie string begin with the name we want?
+          if (cookie.substring(0, name.length + 1) === (name + '=')) {
+            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+            break;
+          }
+        }
+      }
+      return cookieValue;
+    }
+    
     // 获取CSRF令牌
-    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    let csrfToken = getCookie('csrftoken');
+    if (!csrfToken) {
+        // Fallback to getting CSRF token from the form input
+        const csrfInput = document.querySelector('[name=csrfmiddlewaretoken]');
+        if (csrfInput) {
+            csrfToken = csrfInput.value;
+        }
+    }
     
     form.addEventListener('submit', function(e) {
-      e.preventDefault(); // 阻止表单默认提交
+      console.log('[DEBUG] Submit event triggered. Timestamp:', Date.now()); 
+      e.preventDefault(); 
       
+      // 使用form元素的属性作为更可靠的锁
+      if (form.dataset.submitting === 'true') { 
+        console.log('[DEBUG] Form already marked as submitting. Aborting new submit. Timestamp:', Date.now()); 
+        return;
+      }
+      form.dataset.submitting = 'true'; // 设置锁
+      console.log('[DEBUG] form.dataset.submitting set to true. Timestamp:', Date.now()); 
+      
+      registerBtn.disabled = true; 
+
       // 清除之前的状态信息
       statusDiv.innerHTML = '';
       statusDiv.style.display = 'none';
@@ -103,9 +145,6 @@
       
       // 显示加载指示器
       loadingIndicator.style.display = 'block';
-      
-      // 禁用提交按钮
-      registerBtn.disabled = true;
       
       // 构建表单数据
       const formData = new FormData(form);
@@ -121,16 +160,19 @@
         credentials: 'same-origin'
       })
       .then(response => {
-        if (!response.ok) {
-          throw new Error('网络响应不正常');
-        }
-        return response.json();
+        // 总是尝试解析JSON，并将响应状态和数据一起传递
+        return response.json().then(data => ({ 
+          ok: response.ok, 
+          status: response.status, 
+          data: data 
+        }));
       })
-      .then(data => {
+      .then(result => {
         // 隐藏加载指示器
         loadingIndicator.style.display = 'none';
-        
-        if (data.success) {
+        const { ok, status, data } = result;
+
+        if (data.success) { // 通常 ok 为 true, status 为 200
           // 注册成功
           statusDiv.className = 'alert alert-success';
           statusDiv.innerHTML = '<strong>注册成功！</strong> 正在跳转到登录页面...';
@@ -141,7 +183,7 @@
             window.location.href = data.redirect_url || '{% url "login" %}';
           }, 1500);
         } else {
-          // 显示错误信息
+          // data.success is false (可能由于表单验证失败，如 status 400)
           statusDiv.className = 'alert alert-danger';
           let errorHtml = '<strong>注册失败</strong><ul>';
           
@@ -154,27 +196,31 @@
           } else if (data.message) {
             errorHtml += `<li>${data.message}</li>`;
           } else {
-            errorHtml += '<li>注册过程中发生未知错误</li>';
+            // 如果 data 中没有错误信息，但我们知道请求不成功
+            errorHtml += `<li>注册过程中发生未知错误 (状态: ${status})</li>`;
           }
           
           errorHtml += '</ul>';
           statusDiv.innerHTML = errorHtml;
           statusDiv.style.display = 'block';
-          
-          // 重新启用提交按钮
-          registerBtn.disabled = false;
         }
       })
       .catch(error => {
-        // 处理网络错误
+        // 处理网络错误或JSON解析失败等问题
         loadingIndicator.style.display = 'none';
         statusDiv.className = 'alert alert-danger';
-        statusDiv.innerHTML = `<strong>请求错误</strong><p>${error.message}</p>`;
+        statusDiv.innerHTML = `<strong>请求错误</strong><p>无法连接到服务器或服务器返回了无效响应。(${error.message || '未知网络错误'})</p>`;
         statusDiv.style.display = 'block';
         
-        // 重新启用提交按钮
-        registerBtn.disabled = false;
+        // 记录错误到控制台以便调试
+        console.error('注册请求失败:', error);
+      })
+      .finally(() => { 
+        console.log('[DEBUG] Fetch finally block. Resetting form.dataset.submitting. Timestamp:', Date.now()); 
+        form.dataset.submitting = 'false'; // 重置锁
+        registerBtn.disabled = false; 
       });
+      console.log('[DEBUG] Fetch request initiated and event handler logic continuing. Timestamp:', Date.now()); 
     });
   });
 </script>

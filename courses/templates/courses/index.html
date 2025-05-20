@@ -6,6 +6,11 @@
 <div class="hero-section text-center mb-5">
     <h1 class="display-4">计算机考研题库</h1>
     <p class="lead">提供全面的计算机考研复习资料和练习题</p>
+    <p>
+        <a href="{% url 'home' %}" class="btn btn-outline-info mt-2">
+            <i class="bi bi-info-circle me-1"></i>了解更多关于我们
+        </a>
+    </p>
     
     {% if user.is_authenticated %}
     <div class="mt-4">

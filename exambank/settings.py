@@ -26,7 +26,7 @@ SECRET_KEY = "django-insecure-&42^#wx2ghzng88dps40!8*z33=mfjylyd)$622+a3w(^=fap-
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["127.0.0.1", "localhost","*"]
 
 
 # Application definition
@@ -153,12 +153,13 @@ MARKDOWNIFY = {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # 添加登录和登出重定向URL
-LOGIN_REDIRECT_URL = '/'  # 登录成功后重定向到首页
+LOGIN_REDIRECT_URL = '/courses/'  # 登录成功后重定向到课程页面
 LOGOUT_REDIRECT_URL = '/'  # 登出后重定向到首页
 
 # 添加您的前端来源地址
 CSRF_TRUSTED_ORIGINS = [
-    'http://127.0.0.1:8000',
+    
+    'http://127.0.0.1:8002',
     'http://127.0.0.1:8001',
     'http://127.0.0.1',  # 添加不带端口的来源
     # 如果您还通过其他地址访问（例如 localhost），也需要添加

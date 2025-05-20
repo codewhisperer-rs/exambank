@@ -364,7 +364,7 @@ function submitExerciseAttempt(exerciseId, userAnswer) {
     };
     
     // 发送AJAX请求
-    fetch('/submit_attempt/', {
+    fetch('/courses/submit_attempt/', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -667,7 +667,7 @@ function gradeWithAI(exerciseId, userAnswer, modelType) {
     };
     
     // 发送AJAX请求到后端
-    fetch('/api/ai-grade/', {
+    fetch('/courses/api/ai-grade/', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -837,7 +837,7 @@ document.getElementById('submit-feedback-btn').addEventListener('click', functio
     `;
     
     // 发送AJAX请求
-    fetch('/submit-exercise-feedback/', {
+    fetch('/courses/submit-exercise-feedback/', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
