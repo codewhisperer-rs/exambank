@@ -1,0 +1,38 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # args:
+      #   - HTTP_PROXY=http://host.docker.internal:1087
+      #   - HTTPS_PROXY=http://host.docker.internal:1087
+      #   - NO_PROXY=localhost,127.0.0.1
+    image: aqua-ai-exambank:latest
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8002:8002"  # ExamBank 服务
+      - "3000:3000"  # AI助教服务
+    # environment:
+    #   - HTTP_PROXY=http://host.docker.internal:1087
+    #   - HTTPS_PROXY=http://host.docker.internal:1087
+    #   - NO_PROXY=localhost,127.0.0.1
+    #   - DEEPSEEK_API_KEY=API密钥
+    env_file:
+      - ./exambank/.env
+    volumes:
+      - exambank_data:/app/exambank/data
+      - ./exambank/media:/app/exambank/media
+      - exambank_db:/app/exambank/db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bash", "-c", "nc -z localhost 3000 && nc -z localhost 8002"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+volumes:
+  exambank_data:
+  # exambank_media:
+  exambank_db:
