@@ -1,0 +1,867 @@
+{% extends 'courses/base.html' %}
+{% load static %}
+
+{% block title %}{{ section.title }} - 习题练习 - 智学西大{% endblock %}
+
+{% block extrahead %}
+<!-- 添加MathJax支持 -->
+<script>
+MathJax = {
+  tex: {
+    inlineMath: [['$', '$'], ['\\(', '\\)']],
+    displayMath: [['$$', '$$'], ['\\[', '\\]']],
+    processEscapes: true,
+    processEnvironments: true,
+    packages: {'[+]': ['noerrors']}
+  },
+  options: {
+    skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre'],
+    enableMenu: false
+  },
+  startup: {
+    ready: function() {
+      MathJax.startup.defaultReady();
+      
+      // 页面加载完成后立即渲染
+      setTimeout(function() {
+        MathJax.typesetPromise().catch((err) => console.error('初始MathJax渲染失败:', err));
+      }, 100);
+    }
+  }
+};
+</script>
+<script type="text/javascript" id="MathJax-script" async
+  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">
+</script>
+{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="{% url 'courses:index' %}">首页</a></li>
+        <li class="breadcrumb-item"><a href="{% url 'courses:book_detail' section.chapter.book.id %}">{{ section.chapter.book.title }}</a></li>
+        <li class="breadcrumb-item"><a href="{% url 'courses:chapter_detail' section.chapter.id %}">第{{ section.chapter.number }}章 </a></li>
+        <li class="breadcrumb-item"><a href="{% url 'courses:section_detail' section.id %}">{{ section.number }} {{ section.title }}</a></li>
+        <li class="breadcrumb-item active">习题练习</li>
+    </ol>
+</nav>
+
+<div class="row">
+    <div class="col-md-9">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1>{{ section.number }} {{ section.title }} - 习题练习</h1>
+            <a href="{% url 'courses:section_detail' section.id %}" class="btn btn-outline-primary">
+                <i class="bi bi-arrow-left"></i> 返回知识点
+            </a>
+        </div>
+        
+        <!-- 习题部分 -->
+        {% if grouped_exercises %}
+            {% for exercise_type, group in grouped_exercises.items %}
+                <div id="{{ exercise_type }}" class="mb-5 exercise-group">
+                    <h2 class="h4 mb-4 fw-bold text-primary p-2 bg-light border-start border-5 border-primary rounded">{{ group.title }}</h2>
+                    {% for exercise in group.exercises %}
+                    <div class="exercise-card card mb-4">
+                        <div class="card-body position-relative">
+                            <div class="d-flex justify-content-between">
+                                <h5 class="card-title">
+                                    题 {{ exercise.number }}. 
+                                    <span class="exercise-content">{{ exercise.content|safe }}</span>
+                                </h5>
+                            </div>
+                        
+                            {% if exercise.type == 'single' or exercise.type == 'multiple' %}
+                            <div id="exercise-form-{{ exercise.id }}">
+                                <div class="options mt-3">
+                                    {% if exercise.options_dict %}
+                                        {% for key, value in exercise.options_dict.items %}
+                                        <div class="form-check option-label mb-2">
+                                            {% if exercise.type == 'single' %}
+                                            <input class="form-check-input" type="radio" name="exercise_{{ exercise.id }}" id="option_{{ exercise.id }}_{{ key }}" value="{{ key }}" data-correct="{{ exercise.answer }}">
+                                            {% else %}
+                                            <input class="form-check-input" type="checkbox" name="exercise_{{ exercise.id }}[]" id="option_{{ exercise.id }}_{{ key }}" value="{{ key }}" data-correct="{{ exercise.answer }}">
+                                            {% endif %}
+                                            <label class="form-check-label w-100" for="option_{{ exercise.id }}_{{ key }}">
+                                                <strong>{{ key }}.</strong> {{ value|safe }}
+                                            </label>
+                                        </div>
+                                        {% endfor %}
+                                        
+                                        <!-- 添加结果显示区域 -->
+                                        <div id="exercise-result-{{ exercise.id }}"></div>
+                                        
+                                        <!-- 添加加载指示器 -->
+                                        <div id="loading-indicator-{{ exercise.id }}" class="text-center mt-2" style="display: none;">
+                                            <div class="spinner-border text-primary" role="status">
+                                                <span class="visually-hidden">加载中...</span>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- 添加提交按钮 -->
+                                        <button id="submit-btn-{{ exercise.id }}" class="btn btn-primary mt-2 check-answer" data-exercise-id="{{ exercise.id }}" data-exercise-type="{{ exercise.type }}">
+                                            提交答案
+                                        </button>
+                                    {% else %}
+                                        <div class="alert alert-warning">
+                                            此题暂无选项数据
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% elif exercise.type == 'comprehensive' %}
+                            <div id="exercise-form-{{ exercise.id }}">
+                                <div class="mt-3">
+                                    <!-- 综合题文本输入框 -->
+                                    <div class="mb-3">
+                                        <textarea class="form-control" id="text-answer-{{ exercise.id }}" rows="6" placeholder="请在此输入答案..."></textarea>
+                                    </div>
+                                    
+                                    <!-- 添加结果显示区域 -->
+                                    <div id="exercise-result-{{ exercise.id }}"></div>
+                                    
+                                    <!-- 添加加载指示器 -->
+                                    <div id="loading-indicator-{{ exercise.id }}" class="text-center mt-2" style="display: none;">
+                                        <div class="spinner-border text-primary" role="status">
+                                            <span class="visually-hidden">加载中...</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- 按钮区域 -->
+                                    <div class="d-flex gap-2 mt-2">
+                                        <!-- 保存按钮 -->
+                                        <button id="save-btn-{{ exercise.id }}" class="btn btn-secondary save-answer" data-exercise-id="{{ exercise.id }}">
+                                            <i class="bi bi-save"></i> 保存答案
+                                        </button>
+                                        
+                                        <!-- 评分按钮（去掉下拉） -->
+                                        <button id="ai-grade-btn-{{ exercise.id }}"
+                                                class="btn btn-primary ai-grade-btn"
+                                                type="button"
+                                                data-exercise-id="{{ exercise.id }}">
+                                            <i class="bi bi-robot"></i> 评分
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endif %}
+                        
+                            <div class="answer mt-3" style="display: none;" id="answer_{{ exercise.id }}">
+                                <hr>
+                                <h6>答案：<span class="badge bg-success">{{ exercise.answer }}</span></h6>
+                                {% if exercise.explanation %}
+                                <h6>解析：</h6>
+                                <div class="explanation-content markdown-body">{{ exercise.explanation|safe }}</div>
+                                {% endif %}
+                            </div>
+                        
+                            <button class="btn btn-sm btn-outline-primary mt-3 show-answer" data-target="#answer_{{ exercise.id }}">
+                                查看答案
+                            </button>
+                            
+                            <!-- 将反馈按钮移到右下角 -->
+                            <button class="btn btn-sm btn-outline-secondary feedback-btn position-absolute" style="font-size: 0.75rem; padding: 0.15rem 0.5rem; height: 24px; width: auto; right: 15px; bottom: 15px;" data-bs-toggle="modal" data-bs-target="#feedbackModal" data-exercise-id="{{ exercise.id }}" data-exercise-number="{{ exercise.number }}">
+                                <i class="bi bi-flag"></i> 反馈
+                            </button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            {% endfor %}
+        {% else %}
+        <div class="alert alert-info">
+            本节暂无习题
+        </div>
+        {% endif %}
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card sticky-top" style="top: 0;">
+            <div class="card-body">
+                <h5 class="card-title">练习信息</h5>
+                <p class="card-text">
+                    <strong>所属教材：</strong> {{ section.chapter.book.title }}<br>
+                    <strong>所属章节：</strong> 第{{ section.chapter.number }}章 <br>
+                    <strong>小节名称：</strong> {{ section.number }} {{ section.title }}<br>
+                    <strong>习题数量：</strong> {{ total_count }} 题
+                </p>
+                <hr>
+                
+                <!-- 题型导航 -->
+                {% if grouped_exercises %}
+                <h6 class="mb-3">题型导航：</h6>
+                <div class="list-group mb-3">
+                    {% for exercise_type, group in grouped_exercises.items %}
+                    <a href="#{{ exercise_type }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                        <span>{{ group.title }}</span>
+                        <span class="badge bg-primary rounded-pill">{{ group.exercises|length }}</span>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                
+                <div class="d-grid">
+                    <a href="{% url 'courses:section_detail' section.id %}" class="btn btn-primary">
+                        <i class="bi bi-book"></i> 返回学习知识点
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 添加反馈模态框 -->
+<div class="modal fade" id="feedbackModal" tabindex="-1" aria-labelledby="feedbackModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="feedbackModalLabel">习题反馈</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="exercise-feedback-form">
+                    <input type="hidden" id="feedback-exercise-id" name="exercise_id" value="">
+                    <input type="hidden" id="book-title" name="book_title" value="{{ section.chapter.book.title }}">
+                    <input type="hidden" id="chapter-number" name="chapter_number" value="{{ section.chapter.number }}">
+                    <input type="hidden" id="section-number" name="section_number" value="{{ section.number }}">
+                    <input type="hidden" id="section-title" name="section_title" value="{{ section.title }}">
+                    <p>请选择您发现的问题类型（可多选）：</p>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" value="题干有误" id="problem-content" name="problem_types[]">
+                        <label class="form-check-label" for="problem-content">
+                            题干有误
+                        </label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" value="选项有误" id="problem-options" name="problem_types[]">
+                        <label class="form-check-label" for="problem-options">
+                            选项有误
+                        </label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" value="答案有误" id="problem-answer" name="problem_types[]">
+                        <label class="form-check-label" for="problem-answer">
+                            答案有误
+                        </label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" value="解析有误" id="problem-explanation" name="problem_types[]">
+                        <label class="form-check-label" for="problem-explanation">
+                            解析有误
+                        </label>
+                    </div>
+                    <div class="mb-3 mt-3">
+                        <label for="feedback-details" class="form-label">详细说明（可选）：</label>
+                        <textarea class="form-control" id="feedback-details" name="details" rows="3" placeholder="请描述您发现的具体问题..."></textarea>
+                    </div>
+                </form>
+                <div id="feedback-result" class="mt-3"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="submit-feedback-btn">提交反馈</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 存储每个习题的WebSocket连接
+const exerciseSockets = {};
+
+// 全局渲染所有页面上的数学公式
+function renderMathInElement(element) {
+    if (typeof MathJax !== 'undefined') {
+        // 如果传入了特定元素，只渲染该元素内的公式
+        if (element) {
+            MathJax.typesetPromise([element]).catch((err) => console.error('MathJax处理失败:', err));
+        } else {
+            // 否则渲染整个页面
+            MathJax.typesetPromise().catch((err) => console.error('MathJax处理失败:', err));
+        }
+    }
+}
+
+document.querySelectorAll('.show-answer').forEach(button => {
+    button.addEventListener('click', function() {
+        const targetId = this.dataset.target;
+        const answerDiv = document.querySelector(targetId);
+        if (answerDiv) {
+            if (answerDiv.style.display === 'none') {
+                answerDiv.style.display = 'block';
+                this.textContent = '隐藏答案';
+                
+                // 触发MathJax渲染
+                renderMathInElement(answerDiv);
+            } else {
+                answerDiv.style.display = 'none';
+                this.textContent = '查看答案';
+            }
+        }
+    });
+});
+
+// 处理答案提交和验证
+document.querySelectorAll('.check-answer').forEach(button => {
+    button.addEventListener('click', function() {
+        const exerciseId = this.dataset.exerciseId;
+        const exerciseType = this.dataset.exerciseType || 'single'; // 获取题目类型
+        
+        // 根据题目类型获取用户的选择
+        let userAnswer;
+        
+        if (exerciseType === 'single') {
+            // 单选题处理逻辑
+            const selectedOption = document.querySelector(`input[name="exercise_${exerciseId}"]:checked`);
+            if (!selectedOption) {
+                alert('请选择一个选项');
+                return;
+            }
+            userAnswer = selectedOption.value;
+        } else if (exerciseType === 'multiple') {
+            // 多选题处理逻辑
+            const selectedOptions = document.querySelectorAll(`input[name="exercise_${exerciseId}[]"]:checked`);
+            if (selectedOptions.length === 0) {
+                alert('请至少选择一个选项');
+                return;
+            }
+            // 多选题答案用逗号连接
+            userAnswer = Array.from(selectedOptions).map(option => option.value).join(',');
+        } else {
+            // 其他题型处理逻辑
+            alert('暂不支持此题型');
+            return;
+        }
+        
+        // 使用HTTP POST提交答题记录，而不是WebSocket
+        submitExerciseAttempt(exerciseId, userAnswer);
+    });
+});
+
+// 使用HTTP POST提交答题记录
+function submitExerciseAttempt(exerciseId, userAnswer) {
+    // 显示加载指示器
+    const loadingIndicator = document.getElementById(`loading-indicator-${exerciseId}`);
+    if (loadingIndicator) {
+        loadingIndicator.style.display = 'block';
+    }
+    
+    // 禁用提交按钮
+    const submitBtn = document.getElementById(`submit-btn-${exerciseId}`);
+    if (submitBtn) {
+        submitBtn.disabled = true;
+    }
+    
+    // 准备请求数据
+    const data = {
+        exercise_id: exerciseId,
+        user_answer: userAnswer
+    };
+    
+    // 发送AJAX请求
+    fetch('/courses/submit_attempt/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        // 处理响应
+        processExerciseResponse(exerciseId, data);
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        
+        // 显示错误信息
+        const resultDiv = document.getElementById(`exercise-result-${exerciseId}`);
+        if (resultDiv) {
+            resultDiv.innerHTML = `
+                <div class="alert alert-danger mt-3">
+                    提交时出错，请稍后再试
+                </div>
+            `;
+        }
+        
+        // 隐藏加载指示器
+        if (loadingIndicator) {
+            loadingIndicator.style.display = 'none';
+        }
+        
+        // 重新启用提交按钮
+        if (submitBtn) {
+            submitBtn.disabled = false;
+        }
+    });
+}
+
+// 处理习题响应 - 为选择题修改
+function processExerciseResponse(exerciseId, data) {
+    // 隐藏加载指示器
+    const loadingIndicator = document.getElementById(`loading-indicator-${exerciseId}`);
+    if (loadingIndicator) {
+        loadingIndicator.style.display = 'none';
+    }
+    
+    // 重新启用提交按钮
+    const submitBtn = document.getElementById(`submit-btn-${exerciseId}`);
+    if (submitBtn) {
+        submitBtn.disabled = false;
+    }
+    
+    // 显示结果
+    const resultDiv = document.getElementById(`exercise-result-${exerciseId}`);
+    if (resultDiv) {
+        if (data.status === 'success') {
+            // 高亮显示正确和错误的选项
+            highlightOptions(exerciseId, data.correct_answer);
+            
+            // 显示结果信息
+            resultDiv.innerHTML = `
+                <div class="alert ${data.is_correct ? 'alert-success' : 'alert-danger'} mt-3">
+                    <strong>${data.is_correct ? '答对了！' : '答错了！'}</strong>
+                    <p>正确答案：${data.correct_answer}</p>
+                    ${data.explanation ? `<hr><div class="explanation-content markdown-body">${data.explanation}</div>` : ''}
+                </div>
+            `;
+            
+            // 渲染解析中的数学公式
+            renderMathInElement(resultDiv);
+        } else {
+            // 错误处理
+            resultDiv.innerHTML = `
+                <div class="alert alert-danger mt-3">
+                    ${data.message || '提交答案时出错，请稍后再试'}
+                </div>
+            `;
+        }
+    }
+}
+
+// 高亮正确选项
+function highlightCorrectOptions(exerciseId, correctAnswer) {
+    const options = document.querySelectorAll(`input[name^="exercise_${exerciseId}"]`);
+    const correctAnswers = correctAnswer.split(',');
+    
+    options.forEach(option => {
+        const optionValue = option.value;
+        if (correctAnswers.includes(optionValue)) {
+            option.parentElement.classList.add('border-success', 'bg-success', 'bg-opacity-10');
+        }
+    });
+}
+
+// 高亮选项（正确和错误）
+function highlightOptions(exerciseId, correctAnswer) {
+    const options = document.querySelectorAll(`input[name^="exercise_${exerciseId}"]`);
+    const correctAnswers = correctAnswer.split(',');
+    
+    options.forEach(option => {
+        const optionValue = option.value;
+        const isChecked = option.checked;
+        
+        if (correctAnswers.includes(optionValue)) {
+            // 正确选项
+            option.parentElement.classList.add('border-success', 'bg-success', 'bg-opacity-10');
+        } else if (isChecked) {
+            // 错误选项（用户选择了但不是正确答案）
+            option.parentElement.classList.add('border-danger', 'bg-danger', 'bg-opacity-10');
+        }
+    });
+}
+
+// 当页面关闭时清理所有WebSocket连接
+window.addEventListener('beforeunload', function() {
+    for (const exerciseId in exerciseSockets) {
+        const socket = exerciseSockets[exerciseId];
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.close();
+        }
+    }
+});
+
+// 综合题功能：加载保存的答案
+document.addEventListener('DOMContentLoaded', function() {
+    // 初始化MathJax渲染
+    setTimeout(function() {
+        renderMathInElement();
+        
+        // 再次渲染任何可能已经显示的答案区域
+        document.querySelectorAll('.answer').forEach(answerDiv => {
+            if (answerDiv.style.display !== 'none') {
+                renderMathInElement(answerDiv);
+            }
+        });
+        
+        // 渲染任何已经显示的结果区域
+        document.querySelectorAll('[id^="exercise-result-"]').forEach(resultDiv => {
+            if (resultDiv.innerHTML.trim() !== '') {
+                renderMathInElement(resultDiv);
+            }
+        });
+        
+        // 渲染所有markdown-body区域
+        document.querySelectorAll('.markdown-body').forEach(elem => {
+            renderMathInElement(elem);
+        });
+    }, 1000); // 等待1000ms确保DOM和MathJax都已完全加载
+    
+    // 添加DOM变化观察器，自动渲染新添加的内容
+    if ('MutationObserver' in window) {
+        const observer = new MutationObserver(function(mutations) {
+            let mathNodeAdded = false;
+            
+            mutations.forEach(function(mutation) {
+                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                    for (let i = 0; i < mutation.addedNodes.length; i++) {
+                        const node = mutation.addedNodes[i];
+                        if (node.nodeType === 1) { // 元素节点
+                            if (node.classList.contains('markdown-body') || 
+                                node.querySelector('.markdown-body') ||
+                                node.textContent.includes('$')) {
+                                mathNodeAdded = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // 如果有包含数学公式的节点被添加，触发渲染
+            if (mathNodeAdded && typeof MathJax !== 'undefined') {
+                setTimeout(function() {
+                    renderMathInElement();
+                }, 100);
+            }
+        });
+        
+        // 开始观察整个文档
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+    }
+    
+    // 查找所有综合题的输入框
+    document.querySelectorAll('textarea[id^="text-answer-"]').forEach(textarea => {
+        const exerciseId = textarea.id.replace('text-answer-', '');
+        
+        // 从localStorage中获取保存的答案
+        const savedAnswer = localStorage.getItem(`comprehensive_answer_${exerciseId}`);
+        if (savedAnswer) {
+            textarea.value = savedAnswer;
+        }
+    });
+    
+    // 为保存按钮添加事件监听器
+    document.querySelectorAll('.save-answer').forEach(button => {
+        button.addEventListener('click', function() {
+            const exerciseId = this.dataset.exerciseId;
+            const textarea = document.getElementById(`text-answer-${exerciseId}`);
+            
+            if (textarea) {
+                // 保存到localStorage
+                localStorage.setItem(`comprehensive_answer_${exerciseId}`, textarea.value);
+                
+                // 显示保存成功提示
+                const resultDiv = document.getElementById(`exercise-result-${exerciseId}`);
+                if (resultDiv) {
+                    resultDiv.innerHTML = `
+                        <div class="alert alert-success mt-3">
+                            <i class="bi bi-check-circle"></i> 答案已保存
+                        </div>
+                    `;
+                    
+                    // 3秒后自动隐藏提示
+                    setTimeout(() => {
+                        resultDiv.innerHTML = '';
+                    }, 3000);
+                }
+            }
+        });
+    });
+    
+// 为“评分”按钮添加事件监听器（直接走双模型平均）
+document.querySelectorAll('.ai-grade-btn').forEach(button => {
+    button.addEventListener('click', function() {
+        const exerciseId = this.dataset.exerciseId;
+        const textarea = document.getElementById(`text-answer-${exerciseId}`);
+
+        if (!textarea || !textarea.value.trim()) {
+            alert('请先输入答案');
+            return;
+        }
+
+        // 按钮置为“评分中...”
+        const mainButton = document.getElementById(`ai-grade-btn-${exerciseId}`);
+        if (mainButton) {
+            mainButton.disabled = true;
+            mainButton.innerHTML = '<i class="bi bi-robot"></i> 评分中...';
+        }
+
+        // 显示加载指示器
+        const loadingIndicator = document.getElementById(`loading-indicator-${exerciseId}`);
+        if (loadingIndicator) loadingIndicator.style.display = 'block';
+
+        // 结果先提示
+        const resultDiv = document.getElementById(`exercise-result-${exerciseId}`);
+        if (resultDiv) {
+            resultDiv.innerHTML = `
+                <div class="alert alert-info mt-3">
+                    <div class="d-flex align-items-center">
+                        <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                        <span>正在使用 GROK + DEEPSEEK 进行评分，请稍候...</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 调用双模型评分
+        gradeWithAI(exerciseId, textarea.value.trim(), 'both');
+    });
+});
+});
+
+// 全局判分队列状态（防止重复点击同一题）
+const gradingStatus = window.gradingStatus || {};
+
+function gradeWithAI(exerciseId, userAnswer, modelType) {
+    // 固定走双模型
+    modelType = 'both';
+
+    if (gradingStatus[exerciseId]) {
+        alert('此题正在判分中，请稍候');
+        return;
+    }
+    gradingStatus[exerciseId] = true;
+
+    const mainButton = document.getElementById(`ai-grade-btn-${exerciseId}`);
+    const loadingIndicator = document.getElementById(`loading-indicator-${exerciseId}`);
+    const resultDiv = document.getElementById(`exercise-result-${exerciseId}`);
+
+    const data = {
+        exercise_id: exerciseId,
+        user_answer: userAnswer,
+        model_type: 'both'
+    };
+
+    fetch('/courses/api/ai-grade/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        gradingStatus[exerciseId] = false;
+
+        if (loadingIndicator) loadingIndicator.style.display = 'none';
+        if (mainButton) {
+            mainButton.disabled = false;
+            mainButton.innerHTML = '<i class="bi bi-robot"></i> 评分';
+        }
+        if (!resultDiv) return;
+
+        if (data.status === 'success') {
+            // 期望后端返回：average_score + score_details
+            if (typeof data.average_score !== 'undefined' && data.score_details) {
+                const grok = data.score_details?.grok || {};
+                const deepseek = data.score_details?.deepseek || {};
+                const avg = data.average_score;
+
+                resultDiv.innerHTML = `
+                    <div class="alert alert-primary mt-3">
+                        <h5 class="mb-3">评分结果</h5>
+                        <div class="d-flex flex-column gap-2">
+                            <div>
+                                <span class="badge bg-secondary me-2">Grok</span>
+                                <span class="badge bg-primary">${(grok.score ?? '-').toString()}/10</span>
+                            </div>
+                            <div>
+                                <span class="badge bg-secondary me-2">DeepSeek</span>
+                                <span class="badge bg-primary">${(deepseek.score ?? '-').toString()}/10</span>
+                            </div>
+                            <hr class="my-2">
+                            <div>
+                                <span class="badge bg-dark me-2">平均分</span>
+                                <span class="badge bg-success">${avg}</span>
+                            </div>
+                        </div>
+
+                        <hr>
+                        <h6>模型评价：</h6>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="small text-muted mb-1">Grok反馈</div>
+                                <div class="markdown-body">${grok.feedback ? grok.feedback : '—'}</div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="small text-muted mb-1">DeepSeek反馈</div>
+                                <div class="markdown-body">${deepseek.feedback ? deepseek.feedback : '—'}</div>
+                            </div>
+                        </div>
+
+                        ${data.correct_answer ? `
+                        <hr>
+                        <h6>参考答案:</h6>
+                        <div class="markdown-body mt-2">${data.correct_answer}</div>
+                        ` : ''}
+                    </div>
+                `;
+
+                // 若反馈或参考答案包含公式，这里触发渲染
+                if (typeof renderMathInElement === 'function') {
+                    renderMathInElement(resultDiv);
+                }
+            } else {
+                // 后端没返回期望字段时的容错提示
+                resultDiv.innerHTML = `
+                    <div class="alert alert-warning mt-3">
+                        未获取到双模型评分字段（average_score 或 score_details）。请联系管理员检查后端返回。
+                    </div>
+                `;
+            }
+        } else {
+            resultDiv.innerHTML = `
+                <div class="alert alert-danger mt-3">
+                    <h5><i class="bi bi-exclamation-triangle-fill me-2"></i>评分失败</h5>
+                    <p>${data.error || '服务器错误，请稍后再试'}</p>
+                    <p class="mt-2 mb-0"><small class="text-muted">请联系管理员检查双模型评分服务</small></p>
+                </div>
+            `;
+            if (typeof renderMathInElement === 'function') {
+                renderMathInElement(resultDiv);
+            }
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        gradingStatus[exerciseId] = false;
+
+        if (loadingIndicator) loadingIndicator.style.display = 'none';
+        if (mainButton) {
+            mainButton.disabled = false;
+            mainButton.innerHTML = '<i class="bi bi-robot"></i> 评分';
+        }
+
+        if (resultDiv) {
+            resultDiv.innerHTML = `
+                <div class="alert alert-danger mt-3">
+                    <h5><i class="bi bi-exclamation-triangle-fill me-2"></i>网络错误</h5>
+                    <p>无法连接到评分服务，请稍后再试</p>
+                    <p class="mt-2 mb-0"><small class="text-muted">错误详情: ${error.message || '未知错误'}</small></p>
+                </div>
+            `;
+            if (typeof renderMathInElement === 'function') {
+                renderMathInElement(resultDiv);
+            }
+        }
+    });
+}
+
+// 反馈功能的处理
+document.querySelectorAll('.feedback-btn').forEach(button => {
+    button.addEventListener('click', function() {
+        // 获取习题ID并设置到模态框的隐藏表单字段中
+        const exerciseId = this.dataset.exerciseId;
+        const exerciseNumber = this.dataset.exerciseNumber;
+        document.getElementById('feedback-exercise-id').value = exerciseId;
+        
+        // 设置模态框标题
+        document.getElementById('feedbackModalLabel').textContent = `习题${exerciseNumber}反馈`;
+        
+        // 清空之前的选择和结果
+        document.getElementById('problem-content').checked = false;
+        document.getElementById('problem-options').checked = false;
+        document.getElementById('problem-answer').checked = false;
+        document.getElementById('problem-explanation').checked = false;
+        document.getElementById('feedback-details').value = '';
+        document.getElementById('feedback-result').innerHTML = '';
+    });
+});
+
+// 处理反馈提交
+document.getElementById('submit-feedback-btn').addEventListener('click', function() {
+    // 获取所有选中的问题类型
+    const checkedProblems = document.querySelectorAll('#exercise-feedback-form input[name="problem_types[]"]:checked');
+    
+    if (checkedProblems.length === 0) {
+        alert('请至少选择一种问题类型');
+        return;
+    }
+    
+    // 收集表单数据
+    const formData = new FormData(document.getElementById('exercise-feedback-form'));
+    
+    // 创建一个对象来保存表单数据
+    const feedbackData = {
+        exercise_id: formData.get('exercise_id'),
+        book_title: formData.get('book_title'),
+        chapter_number: formData.get('chapter_number'),
+        section_number: formData.get('section_number'),
+        section_title: formData.get('section_title'),
+        problem_types: Array.from(checkedProblems).map(checkbox => checkbox.value),
+        details: formData.get('details') || ''
+    };
+    
+    // 显示加载提示
+    const resultDiv = document.getElementById('feedback-result');
+    resultDiv.innerHTML = `
+        <div class="text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">正在提交...</span>
+            </div>
+            <p class="mt-2">正在提交反馈...</p>
+        </div>
+    `;
+    
+    // 发送AJAX请求
+    fetch('/courses/submit-exercise-feedback/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        },
+        body: JSON.stringify(feedbackData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            resultDiv.innerHTML = `
+                <div class="alert alert-success">
+                    反馈提交成功！谢谢您的反馈。
+                </div>
+            `;
+            
+            // 3秒后自动关闭模态框
+            setTimeout(() => {
+                const modal = bootstrap.Modal.getInstance(document.getElementById('feedbackModal'));
+                if (modal) {
+                    modal.hide();
+                }
+            }, 3000);
+        } else {
+            resultDiv.innerHTML = `
+                <div class="alert alert-danger">
+                    提交失败：${data.error || '未知错误'}
+                </div>
+            `;
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        resultDiv.innerHTML = `
+            <div class="alert alert-danger">
+                提交时发生错误，请稍后再试。
+            </div>
+        `;
+    });
+});
+</script>
+{% endblock %}

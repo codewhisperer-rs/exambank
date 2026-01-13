@@ -1,0 +1,224 @@
+from django.db import models
+from django.contrib.auth.models import User
+# Create your models here.
+
+class Book(models.Model):
+    title = models.CharField(max_length=100, verbose_name='书名')
+    description = models.TextField(blank=True, verbose_name='描述')
+    cover_image = models.ImageField(upload_to='book_covers/', blank=True, verbose_name='封面图片')
+    
+    class Meta:
+        verbose_name = '书籍'
+        verbose_name_plural = verbose_name
+        
+    def __str__(self):
+        return self.title
+
+class Chapter(models.Model):
+    book = models.ForeignKey(Book, on_delete=models.CASCADE, related_name='chapters', verbose_name='所属书籍')
+    number = models.IntegerField(verbose_name='章节号')
+    title = models.CharField(max_length=200, verbose_name='章节标题')
+    introduction = models.TextField(blank=True, verbose_name='章节介绍')
+    
+    class Meta:
+        verbose_name = '章节'
+        verbose_name_plural = verbose_name
+        ordering = ['number']
+        
+    def __str__(self):
+        return f"{self.book.title} - 第{self.number}章 {self.title}"
+
+class Section(models.Model):
+    SECTION_TYPES = (
+        ('content', '内容小节'),
+        ('introduction', '章节介绍'),
+        ('summary', '章节小结'),
+        ('faq', '常见问题/疑难点'),
+        ('other', '其他'),
+    )
+    
+    chapter = models.ForeignKey(Chapter, on_delete=models.CASCADE, related_name='sections', verbose_name='所属章节')
+    number = models.CharField(max_length=10, verbose_name='小节号')  # 如1.1, 1.2等
+    title = models.CharField(max_length=200, verbose_name='小节标题')
+    section_type = models.CharField(max_length=20, choices=SECTION_TYPES, default='content', verbose_name='小节类型')
+    content = models.TextField(blank=True, verbose_name='小节内容 (Markdown)')
+    
+    class Meta:
+        verbose_name = '小节'
+        verbose_name_plural = verbose_name
+        ordering = ['number']
+        
+    def __str__(self):
+        return f"{self.chapter.book.title} - {self.number} {self.title}"
+
+class Knowledge(models.Model):
+    section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name='knowledge_points', verbose_name='所属小节')
+    title = models.CharField(max_length=200, verbose_name='知识点标题')
+    content = models.TextField(verbose_name='知识点内容')
+    order = models.IntegerField(default=0, verbose_name='排序')
+    
+    class Meta:
+        verbose_name = '知识点'
+        verbose_name_plural = verbose_name
+        ordering = ['order']
+        
+    def __str__(self):
+        return f"{self.section} - {self.title}"
+
+class Exercise(models.Model):
+    TYPES = (
+        ('single', '单项选择题'),
+        ('multiple', '多项选择题'),
+        ('comprehensive', '综合题'),
+    )
+    
+    section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name='exercises', verbose_name='所属小节')
+    type = models.CharField(max_length=20, choices=TYPES, verbose_name='题目类型')
+    number = models.CharField(max_length=10, verbose_name='题号')  # 如01, 02等
+    content = models.TextField(verbose_name='题目内容')
+    options = models.JSONField(null=True, blank=True, verbose_name='选项')  # 用于选择题的选项
+    answer = models.CharField(max_length=200, verbose_name='答案')
+    explanation = models.TextField(verbose_name='解析')
+    order = models.IntegerField(default=0, verbose_name='排序')
+    knowledge_points = models.ManyToManyField(Knowledge, through='ExerciseKnowledge', related_name='related_exercises', verbose_name='相关知识点')
+    
+    class Meta:
+        verbose_name = '习题'
+        verbose_name_plural = verbose_name
+        ordering = ['order', 'number']
+        
+    def __str__(self):
+        return f"{self.section} - 第{self.number}题"
+
+class ExerciseKnowledge(models.Model):
+    exercise = models.ForeignKey(Exercise, on_delete=models.CASCADE, related_name='exercise_knowledge_links', verbose_name='习题')
+    knowledge = models.ForeignKey(Knowledge, on_delete=models.CASCADE, related_name='exercise_knowledge_links', verbose_name='知识点')
+    relevance = models.IntegerField(default=5, verbose_name='相关性程度', help_text='1-10，数值越大表示相关性越强')
+    
+    class Meta:
+        verbose_name = '习题-知识点关联'
+        verbose_name_plural = verbose_name
+        unique_together = ['exercise', 'knowledge']
+        
+    def __str__(self):
+        return f"{self.exercise} - {self.knowledge}"
+
+class ExerciseAttempt(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='exercise_attempts_new', verbose_name='用户')
+    exercise = models.ForeignKey(Exercise, on_delete=models.CASCADE, related_name='attempts_new', verbose_name='习题')
+    is_correct = models.BooleanField(default=False, verbose_name='是否正确')
+    user_answer = models.TextField(blank=True, null=True, verbose_name='用户答案')
+    attempt_time = models.DateTimeField(auto_now_add=True, verbose_name='尝试时间')
+
+    class Meta:
+        verbose_name = '用户答题记录(新)'
+        verbose_name_plural = verbose_name
+        ordering = ['-attempt_time']
+
+    def __str__(self):
+        status = "正确" if self.is_correct else "错误"
+        return f"{self.user.username} - {self.exercise} - {status} ({self.attempt_time.strftime('%Y-%m-%d %H:%M')})"
+
+class UserMistakeCollection(models.Model):
+    """用户错题集"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='mistake_collections', verbose_name='用户')
+    exercise = models.ForeignKey(Exercise, on_delete=models.CASCADE, related_name='in_mistake_collections', verbose_name='习题')
+    added_at = models.DateTimeField(auto_now_add=True, verbose_name='添加时间')
+    last_attempt_at = models.DateTimeField(null=True, blank=True, verbose_name='最后一次尝试时间')
+    attempt_count = models.IntegerField(default=0, verbose_name='尝试次数')
+    correct_count = models.IntegerField(default=0, verbose_name='正确次数')
+    last_wrong_answer = models.CharField(max_length=200, blank=True, null=True, verbose_name='最近一次错误答案')
+    notes = models.TextField(blank=True, verbose_name='笔记')
+    
+    class Meta:
+        verbose_name = '用户错题集'
+        verbose_name_plural = verbose_name
+        unique_together = ['user', 'exercise']
+        ordering = ['-added_at']
+        
+    def __str__(self):
+        return f"{self.user.username}的错题: {self.exercise}"
+    
+    @property
+    def accuracy_rate(self):
+        """计算正确率"""
+        if self.attempt_count == 0:
+            return 0
+        return (self.correct_count / self.attempt_count) * 100
+
+# 新增模型：AI生成的习题
+class AIGeneratedExercise(models.Model):
+    """AI为用户生成的习题"""
+    TYPES = (
+        ('single', '单选题'),
+        ('multiple', '多选题'),
+        ('comprehensive', '综合题'),
+    )
+    
+    DIFFICULTY_LEVELS = (
+        ('easy', '简单'),
+        ('medium', '中等'),
+        ('hard', '困难'),
+    )
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='ai_exercises', verbose_name='用户')
+    model_type = models.CharField(max_length=50, verbose_name='模型类型', help_text='生成该题目的AI模型类型，如grok, deepseek等')
+    type = models.CharField(max_length=20, choices=TYPES, verbose_name='题目类型')
+    content = models.TextField(verbose_name='题目内容')
+    options = models.JSONField(null=True, blank=True, verbose_name='选项')  # 用于选择题的选项
+    answer = models.CharField(max_length=200, verbose_name='答案')
+    explanation = models.TextField(verbose_name='解析')
+    difficulty = models.CharField(max_length=20, choices=DIFFICULTY_LEVELS, default='medium', verbose_name='难度级别')
+    knowledge_points = models.JSONField(null=True, blank=True, verbose_name='相关知识点')
+    reason = models.TextField(blank=True, verbose_name='推荐理由')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    book = models.ForeignKey(Book, on_delete=models.SET_NULL, null=True, blank=True, related_name='ai_exercises', verbose_name='关联书籍')
+    
+    class Meta:
+        verbose_name = 'AI生成习题'
+        verbose_name_plural = verbose_name
+        ordering = ['-created_at']
+        
+    def __str__(self):
+        return f"{self.user.username}的AI生成题: {self.content[:30]}..."
+
+class AIExerciseAttempt(models.Model):
+    """用户对AI生成习题的尝试记录"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='ai_exercise_attempts', verbose_name='用户')
+    exercise = models.ForeignKey(AIGeneratedExercise, on_delete=models.CASCADE, related_name='attempts', verbose_name='AI生成习题')
+    is_correct = models.BooleanField(default=False, verbose_name='是否正确')
+    user_answer = models.TextField(blank=True, null=True, verbose_name='用户答案')
+    attempt_time = models.DateTimeField(auto_now_add=True, verbose_name='尝试时间')
+
+    class Meta:
+        verbose_name = 'AI生成习题答题记录'
+        verbose_name_plural = verbose_name
+        ordering = ['-attempt_time']
+
+    def __str__(self):
+        status = "正确" if self.is_correct else "错误"
+        return f"{self.user.username} - AI题 - {status} ({self.attempt_time.strftime('%Y-%m-%d %H:%M')})"
+
+# 新增模型：习题反馈记录
+class ExerciseFeedback(models.Model):
+    """用户对习题的反馈记录"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='exercise_feedbacks', verbose_name='用户', null=True, blank=True)
+    exercise = models.ForeignKey(Exercise, on_delete=models.CASCADE, related_name='feedbacks', verbose_name='习题')
+    book_title = models.CharField(max_length=100, verbose_name='书籍名称')
+    chapter_number = models.CharField(max_length=10, verbose_name='章节号')
+    section_number = models.CharField(max_length=10, verbose_name='小节号')
+    section_title = models.CharField(max_length=200, verbose_name='小节标题')
+    problem_types = models.JSONField(verbose_name='问题类型', help_text='可包含题干有误、选项有误、答案有误等')
+    details = models.TextField(blank=True, verbose_name='详细描述')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    status = models.CharField(max_length=20, default='pending', verbose_name='处理状态', 
+                             choices=[('pending', '待处理'), ('processing', '处理中'), ('resolved', '已解决'), ('ignored', '已忽略')])
+    admin_notes = models.TextField(blank=True, verbose_name='管理员备注')
+    
+    class Meta:
+        verbose_name = '习题反馈'
+        verbose_name_plural = verbose_name
+        ordering = ['-created_at']
+        
+    def __str__(self):
+        return f"习题反馈: {self.book_title} 第{self.chapter_number}章 {self.section_number} - {self.created_at.strftime('%Y-%m-%d')}"

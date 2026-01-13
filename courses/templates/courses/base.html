@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-hans">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}AI考研{% endblock %}</title>
+    <!-- 引入Bootstrap CSS -->
+    <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <!-- 引入Bootstrap图标 -->
+    <link href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.10.0/font/bootstrap-icons.min.css" rel="stylesheet">
+    <!-- 引入 MathJax 支持 LaTeX 公式渲染 -->
+    <script>
+        MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']],
+                processEscapes: true,
+                processEnvironments: true,
+                packages: {'[+]': ['ams', 'unicode', 'color']},
+                macros: {
+                    textcircled: ["\\enclose{circle}{#1}", 1]
+                }
+            },
+            options: {
+                skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+                processHtmlClass: 'arithmatex'  // 处理具有 arithmatex 类的元素
+            },
+            svg: {
+                fontCache: 'global'
+            }
+        };
+    </script>
+    <!-- 使用 jsDelivr CDN 代替 bootcdn -->
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js"></script>
+    <!-- 添加 MathJax 扩展支持 -->
+    <script id="MathJax-extension" async src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/input/tex/extensions/enclose.js"></script>
+    <style>
+        .navbar-brand img {
+            height: 40px;
+        }
+        .hero-section {
+            background-color: #f8f9fa;
+            padding: 60px 0;
+        }
+        .card {
+            transition: transform 0.2s;
+            margin-bottom: 20px;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .exercise-card {
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .options .form-check {
+            border: 1px solid #e9ecef;
+            border-radius: 5px;
+            padding: 10px 15px;
+            margin-bottom: 10px;
+            transition: all 0.2s ease;
+            width: 100%;
+        }
+        .options .form-check:hover {
+            background-color: #f8f9fa;
+            border-color: #ced4da;
+        }
+        .form-check-input:checked + .form-check-label {
+            font-weight: bold;
+        }
+        .exercise-content {
+            font-weight: normal;
+            margin-bottom: 15px;
+            display: block;
+        }
+        .options .form-check-label {
+            width: calc(100% - 1.5em);
+            margin-left: 0.5em;
+        }
+        .options .form-check-input:checked ~ .form-check-label {
+            color: #0d6efd;
+        }
+        .options .form-check-input:checked ~ .form-check-label strong {
+            color: #0d6efd;
+        }
+        /* 控制图片大小 */
+        img {
+            max-width: 100%;
+            height: auto;
+        }
+        /* 控制习题内容中的图片 */
+        .exercise-content img, .explanation-content img {
+            max-width: 80%;
+            display: block;
+            margin: 10px auto;
+        }
+        /* 控制markdown内容中的图片 */
+        .markdown-body img {
+            max-width: 80%;
+            display: block;
+            margin: 10px auto;
+        }
+        /* 让退出按钮看起来像普通链接 */
+        .btn-link.nav-link {
+            padding: 0.5rem 1rem;
+            background: none;
+            border: none;
+            text-decoration: none;
+            color: rgba(0,0,0,.55);
+            cursor: pointer;
+        }
+        .btn-link.nav-link:hover {
+            color: rgba(0,0,0,.7);
+        }
+        /* AI助教按钮样式 */
+        .nav-item .nav-link[href*="chat"] {
+            color: #0d6efd;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        .nav-item .nav-link[href*="chat"]:hover {
+            color: #0a58ca;
+            transform: translateY(-2px);
+        }
+        .nav-item .nav-link[href*="chat"] i {
+            margin-right: 5px;
+        }
+        /* AI助教模态框样式 */
+        #aiAssistantModal .modal-content {
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        }
+        #aiAssistantModal .modal-header {
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+        }
+        #aiAssistantModal .modal-body {
+            padding: 0 !important; /* 确保没有内边距 */
+        }
+        #ai-assistant-iframe {
+            width: 100%;
+            height: 75vh; /* 使用视口高度单位，更适应不同屏幕 */
+            border: none;
+            display: block;
+        }
+        /* 响应式调整 */
+        @media (max-width: 768px) {
+            #aiAssistantModal .modal-dialog {
+                margin: 0.5rem;
+                max-width: calc(100% - 1rem);
+            }
+            #ai-assistant-iframe {
+                height: 70vh;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <div class="container">
+            <a class="navbar-brand" href="{% url 'courses:index' %}">
+                <i class="bi bi-book"></i> AI考研
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'courses:index' %}">首页</a>
+                    </li>
+                    {% if user.is_authenticated %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'courses:knowledge_graph' %}" target="_blank">
+                            <i class="bi bi-diagram-3"></i> 知识图谱
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'courses:mistake_collection' %}" target="_blank">
+                            <i class="bi bi-journal-x"></i> 我的错题集
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'courses:extract_knowledge' %}" target="_blank">
+                            <i class="bi bi-lightbulb"></i> 知识点提取
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'courses:ai_recommend' %}" target="_blank">
+                            <i class="bi bi-magic"></i> AI智能推荐
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'courses:my_ai_exercises' %}" target="_blank">
+                            <i class="bi bi-robot"></i> AI习题库
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="ai-assistant-btn">
+                            <i class="bi bi-chat-dots"></i> AI助教
+                        </a>
+                    </li>
+                    {% endif %}
+                </ul>
+                <ul class="navbar-nav ms-auto">
+                    {% if user.is_authenticated %}
+                    <li class="nav-item">
+                        <span class="nav-link">您好，{{ user.username }}</span>
+                    </li>
+                    <li class="nav-item">
+                        <form method="post" action="{% url 'logout' %}" class="d-inline">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-link nav-link">退出</button>
+                        </form>
+                    </li>
+                    {% else %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'login' %}">登录</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'register' %}">注册</a>
+                    </li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主要内容 -->
+    <main class="container py-4">
+        {% block content %}
+        {% endblock %}
+    </main>
+
+    <!-- 页脚 -->
+    <footer class="bg-light py-4 mt-5">
+        <div class="container text-center">
+            <p class="mb-0">© 西南大学计算机与信息科学学院25教Lab808. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- AI助教模态框 -->
+    <div class="modal fade" id="aiAssistantModal" tabindex="-1" aria-labelledby="aiAssistantModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-fullscreen">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="aiAssistantModalLabel">
+                        <i class="bi bi-robot"></i> AI助教
+                    </h5>
+                    <div class="loader-container me-auto ms-3 d-none" id="iframe-loader">
+                        <div class="spinner-border spinner-border-sm text-primary" role="status">
+                            <span class="visually-hidden">加载中...</span>
+                        </div>
+                        <span class="ms-2 small">正在加载聊天界面...</span>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <iframe id="ai-assistant-iframe" src="about:blank" style="width:100%; height:600px; border:none;"></iframe>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // AI助教模态框加载
+        document.addEventListener('DOMContentLoaded', function() {
+            const aiAssistantBtn = document.getElementById('ai-assistant-btn');
+            const aiAssistantIframe = document.getElementById('ai-assistant-iframe');
+            const iframeLoader = document.getElementById('iframe-loader');
+            const aiModal = new bootstrap.Modal(document.getElementById('aiAssistantModal'));
+            
+            // 安全地从Django获取用户信息
+            const userId = "{{ user.id|default:'' }}";
+            const username = "{{ user.username|default:'' }}";
+            const isAuthenticated = "{{ user.is_authenticated|yesno:'true,false' }}";
+            
+            // 构建聊天URL
+            let chatUrl = "http://localhost:3000/chat";
+            if (isAuthenticated) {
+                chatUrl += "?user_id=" + userId + "&username=" + encodeURIComponent(username);
+            }
+            
+            if (aiAssistantBtn) {
+                aiAssistantBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    
+                    // 显示加载指示器
+                    iframeLoader.classList.remove('d-none');
+                    
+                    // 设置iframe的src属性
+                    aiAssistantIframe.src = chatUrl;
+                    
+                    // 监听iframe加载完成
+                    aiAssistantIframe.onload = function() {
+                        iframeLoader.classList.add('d-none');
+                    };
+                    
+                    // 显示模态框
+                    aiModal.show();
+                });
+                
+                // 模态框关闭时处理
+                const aiAssistantModal = document.getElementById('aiAssistantModal');
+                aiAssistantModal.addEventListener('hidden.bs.modal', function (event) {
+                    // 清空iframe内容，避免下次打开时显示旧内容
+                    setTimeout(function() {
+                        aiAssistantIframe.src = "about:blank";
+                    }, 300);
+                });
+            }
+        });
+    </script>
+    
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

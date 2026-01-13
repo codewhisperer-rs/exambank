@@ -1,0 +1,43 @@
+{% extends 'courses/base.html' %}
+
+{% block title %}首页 - 智学西大{% endblock %}
+
+{% block content %}
+<div class="hero-section text-center mb-5">
+    <h1 class="display-4">智学西大</h1>
+    <p class="lead">提供全面的计算机考研复习资料和练习题</p>
+    <p>
+        <a href="{% url 'home' %}" class="btn btn-outline-info mt-2">
+            <i class="bi bi-info-circle me-1"></i>了解更多关于我们
+        </a>
+    </p>
+    
+    {% if user.is_authenticated %}
+    <div class="mt-4">
+        <a href="{% url 'courses:mistake_collection' %}" class="btn btn-primary me-2" target="_blank">
+            <i class="bi bi-journal-x"></i> 我的错题集
+        </a>
+        <a href="{% url 'courses:ai_recommend' %}" class="btn btn-success" target="_blank">
+            <i class="bi bi-magic"></i> AI智能推荐
+        </a>
+    </div>
+    {% endif %}
+</div>
+
+<div class="row">
+    {% for book in books %}
+    <div class="col-md-6 col-lg-3">
+        <div class="card h-100">
+            {% if book.cover_image %}
+            <img src="{{ book.cover_image.url }}" class="card-img-top" alt="{{ book.title }}">
+            {% endif %}
+            <div class="card-body">
+                <h5 class="card-title">{{ book.title }}</h5>
+                <p class="card-text">{{ book.description }}</p>
+                <a href="{% url 'courses:book_detail' book.id %}" class="btn btn-primary" target="_blank">开始学习</a>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %} 

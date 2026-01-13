@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="zh-hans">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI考研 - 为考研之路领航</title>
+    <!-- 引入Bootstrap CSS -->
+    <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <!-- 引入Bootstrap图标 -->
+    <link href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.10.0/font/bootstrap-icons.min.css" rel="stylesheet">
+    <style>
+        /* 全局样式 */
+        body {
+            font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+        }
+        
+        /* 导航栏样式 */
+        .navbar {
+            background-color: rgba(33, 37, 41, 0.8) !important;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            padding: 0.5rem 1rem;
+        }
+        
+        .navbar-brand {
+            font-weight: 600;
+            font-size: 1.5rem;
+            color: white !important;
+        }
+        
+        .nav-link {
+            color: rgba(255, 255, 255, 0.85) !important;
+            font-weight: 500;
+            padding: 0.5rem 1rem !important;
+            transition: all 0.3s ease;
+        }
+        
+        .nav-link:hover {
+            color: white !important;
+        }
+        
+        /* 英雄区域样式 */
+        .hero-section {
+            position: relative;
+            height: 100vh;
+            min-height: 600px;
+            /* 使用静态图片作为背景 */
+            background: linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url('https://img.freepik.com/free-photo/programming-background-with-person-working-with-codes-computer_23-2150010125.jpg?w=1380&t=st=1718972823~exp=1718973423~hmac=baa7f4f57a61eea48b6a0eda1a0c2aeb3e96b2f2d15ce35ab21ca0c15f4ddf2b') center center no-repeat;
+            background-size: cover;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+        
+        .hero-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.7) 100%);
+        }
+        
+        .hero-content {
+            position: relative;
+            z-index: 10;
+            max-width: 900px;
+            padding: 0 20px;
+        }
+        
+        .hero-title {
+            font-size: 3.5rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            letter-spacing: 2px;
+        }
+        
+        .hero-subtitle {
+            font-size: 1.8rem;
+            font-weight: 300;
+            margin-bottom: 2rem;
+            letter-spacing: 1px;
+        }
+        
+        /* 按钮样式 */
+        .btn-xiaomi {
+            background-color: #ff6700;
+            border-color: #ff6700;
+            color: white;
+            padding: 0.75rem 2rem;
+            font-weight: 500;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-xiaomi:hover {
+            background-color: #ff5000;
+            border-color: #ff5000;
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(255, 103, 0, 0.3);
+        }
+        
+        .btn-outline-xiaomi {
+            background-color: transparent;
+            border-color: white;
+            color: white;
+            padding: 0.75rem 2rem;
+            font-weight: 500;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-outline-xiaomi:hover {
+            background-color: white;
+            color: #ff6700;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(255, 255, 255, 0.3);
+        }
+        
+        /* 视频部分样式 */
+        .video-section {
+            padding: 6rem 0;
+            background-color: white; /* Or #f8f9fa for a light gray background */
+        }
+        
+        .video-container {
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        /* 特性部分样式 */
+        .features-section {
+            padding: 6rem 0;
+            background-color: #f8f9fa; /* Changed to light gray for contrast */
+        }
+        
+        .section-title {
+            font-size: 2.5rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+        
+        .section-subtitle {
+            font-size: 1.2rem;
+            font-weight: 300;
+            margin-bottom: 3rem;
+            text-align: center;
+            color: #666;
+        }
+        
+        .feature-card {
+            text-align: center;
+            padding: 2rem;
+            background-color: white; /* Added background for cards on gray section */
+            transition: all 0.3s ease;
+            border-radius: 8px;
+            height: 100%;
+             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05); /* Softer shadow for cards */
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+        }
+        
+        .feature-icon {
+            font-size: 3rem;
+            color: #ff6700;
+            margin-bottom: 1.5rem;
+        }
+        
+        .feature-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+        
+        .feature-desc {
+            font-size: 1rem;
+            color: #666;
+            line-height: 1.6;
+        }
+        
+        /* 团队部分样式 */
+        .team-section {
+            padding: 6rem 0;
+            background-color: white; /* Changed to white for contrast */
+        }
+        
+        .team-card {
+            text-align: center;
+            padding: 2rem;
+            background-color: #f8f9fa; /* Light gray background for team cards */
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+            height: 100%;
+        }
+        
+        .team-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+        
+        .team-avatar {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            margin: 0 auto 1.5rem;
+            background-color: #e9ecef; /* Slightly darker gray for avatar background */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #ff6700;
+            font-size: 3rem;
+        }
+        
+        .team-name {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        
+        .team-position {
+            font-size: 1rem;
+            color: #ff6700;
+            margin-bottom: 1rem;
+        }
+        
+        .team-bio {
+            font-size: 0.9rem;
+            color: #666;
+            line-height: 1.6;
+        }
+        
+        /* 页脚样式 */
+        footer {
+            background-color: #212529;
+            color: white;
+            padding: 3rem 0;
+        }
+        
+        .footer-logo {
+            font-size: 1.8rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+        
+        .footer-desc {
+            font-size: 0.9rem;
+            color: rgba(255, 255, 255, 0.7);
+            margin-bottom: 2rem;
+        }
+        
+        .footer-copyright {
+            font-size: 0.8rem;
+            color: rgba(255, 255, 255, 0.5);
+            padding-top: 1.5rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-dark fixed-top">
+        <div class="container">
+            <a class="navbar-brand" href="#">AI考研</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'courses:index' %}">课程首页</a>
+                    </li>
+                </ul>
+                <ul class="navbar-nav ms-auto">
+                    {% if user.is_authenticated and not is_anonymous_view %}
+                    <li class="nav-item">
+                        <span class="nav-link">您好，{{ user.username }}</span>
+                    </li>
+                    <li class="nav-item">
+                        <form method="post" action="{% url 'logout' %}" class="d-inline">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-outline-light btn-sm nav-link">退出</button>
+                        </form>
+                    </li>
+                    {% else %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'login' %}?next=/courses/">登录</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'register' %}">注册</a>
+                    </li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 英雄区域 -->
+    <section class="hero-section">
+        <div class="hero-overlay"></div>
+        <div class="hero-content">
+            <h1 class="hero-title">知识助力未来 学习成就梦想</h1>
+            <p class="hero-subtitle">全面的计算机专业考研复习平台，助您一臂之力</p>
+            <div class="d-flex justify-content-center">
+                <a href="{% url 'login' %}?next=/courses/" class="btn btn-xiaomi me-3">
+                    <i class="bi bi-box-arrow-in-right me-2"></i>登录系统
+                </a>
+                <a href="{% url 'register' %}" class="btn btn-outline-xiaomi">
+                    <i class="bi bi-person-plus me-2"></i>注册账号
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- 视频介绍部分 -->
+    <section class="video-section">
+        <div class="container">
+            <h2 class="section-title">视频介绍</h2>
+            <p class="section-subtitle">了解我们的平台如何帮助您备战考研</p>
+            
+            <div class="row justify-content-center">
+                <div class="col-lg-10">
+                    <div class="video-container ratio ratio-16x9">
+                        <video controls autoplay loop muted class="rounded shadow">
+                            <source src="/media/videos/intro.mp4" type="video/mp4">
+                            您的浏览器不支持视频播放，请升级您的浏览器或使用其他浏览器。
+                        </video>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 特性部分 -->
+    <section class="features-section">
+        <div class="container">
+            <h2 class="section-title">我们的特色</h2>
+            <p class="section-subtitle">为计算机考研学子提供全方位的学习支持</p>
+            
+            <div class="row g-4">
+                <div class="col-md-6 col-lg-3">
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="bi bi-diagram-3"></i>
+                        </div>
+                        <h3 class="feature-title">知识图谱</h3>
+                        <p class="feature-desc">直观展示计算机专业知识体系，帮助您理清知识结构和联系，掌握考研重点。</p>
+                    </div>
+                </div>
+                
+                <div class="col-md-6 col-lg-3">
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="bi bi-journal-check"></i>
+                        </div>
+                        <h3 class="feature-title">智能错题集</h3>
+                        <p class="feature-desc">自动记录您的错题，提供针对性复习，让复习更高效，提高记忆效果。</p>
+                    </div>
+                </div>
+                
+                <div class="col-md-6 col-lg-3">
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="bi bi-magic"></i>
+                        </div>
+                        <h3 class="feature-title">AI智能推荐</h3>
+                        <p class="feature-desc">基于您的学习情况和错题，智能推荐个性化习题，提高复习效率。</p>
+                    </div>
+                </div>
+                
+                <div class="col-md-6 col-lg-3">
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="bi bi-robot"></i>
+                        </div>
+                        <h3 class="feature-title">AI助教</h3>
+                        <p class="feature-desc">24小时在线解答疑问，提供学习建议，就像有专属助教陪伴您的考研之路。</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 团队介绍部分 -->
+    <!-- <section class="team-section">
+        <div class="container">
+            <h2 class="section-title">我们的团队</h2>
+            <p class="section-subtitle">专业的团队为您提供优质的学习体验</p>
+            
+            <div class="row g-4">
+                <div class="col-md-4">
+                    <div class="team-card">
+                        <div class="team-avatar">
+                            <i class="bi bi-person"></i>
+                        </div>
+                        <h3 class="team-name">王教授</h3>
+                        <p class="team-position">项目指导</p>
+                        <p class="team-bio">西南大学计算机与信息科学学院教授，专注于计算机科学教育与研究，为本平台提供专业指导。</p>
+                    </div>
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="team-card">
+                        <div class="team-avatar">
+                            <i class="bi bi-person"></i>
+                        </div>
+                        <h3 class="team-name">李博士</h3>
+                        <p class="team-position">技术负责人</p>
+                        <p class="team-bio">拥有丰富的教育软件开发经验，负责平台的技术实现与人工智能算法优化。</p>
+                    </div>
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="team-card">
+                        <div class="team-avatar">
+                            <i class="bi bi-person"></i>
+                        </div>
+                        <h3 class="team-name">张同学</h3>
+                        <p class="team-position">开发工程师</p>
+                        <p class="team-bio">西南大学研究生，负责平台的前端开发与用户体验设计，让学习更加便捷高效。</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section> -->
+
+    <!-- 页脚 -->
+    <footer>
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-6">
+                    <div class="footer-logo">AI考研</div>
+                    <p class="footer-desc">我们致力于为计算机专业考研学生提供高质量的学习资源和练习平台。通过智能推荐系统和个性化学习路径，帮助每位学生都能找到适合自己的学习方法，提高学习效率，实现考研目标。</p>
+                </div>
+                <div class="col-lg-6">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h5 class="mb-4">快速链接</h5>
+                            <ul class="list-unstyled">
+                                <li class="mb-2"><a href="{% url 'login' %}?next=/courses/" class="text-white text-decoration-none">登录系统</a></li>
+                                <li class="mb-2"><a href="{% url 'register' %}" class="text-white text-decoration-none">注册账号</a></li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h5 class="mb-4">联系我们</h5>
+                            <ul class="list-unstyled">
+                                <!-- <li class="mb-2"><i class="bi bi-envelope me-2"></i>contact@exambank.edu.cn</li> -->
+                                <li class="mb-2"><i class="bi bi-geo-alt me-2"></i>重庆市北碚区西南大学计算机与信息科学学院25教Lab808</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="text-center footer-copyright mt-5">
+                <p>© 西南大学计算机与信息科学学院Lab808. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

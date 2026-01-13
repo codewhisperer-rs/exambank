@@ -1,0 +1,49 @@
+{% extends 'courses/base.html' %}
+{% load markdownify %}
+
+{% block title %}{{ chapter.title }} - {{ chapter.book.title }} - 智学西大{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="{% url 'courses:index' %}">首页</a></li>
+        <li class="breadcrumb-item"><a href="{% url 'courses:book_detail' chapter.book.id %}">{{ chapter.book.title }}</a></li>
+        <li class="breadcrumb-item active">{{ chapter.title }}</li>
+    </ol>
+</nav>
+
+<div class="row">
+    <div class="col-md-9">
+        <h1 class="mb-4">{{ chapter.title }}</h1>
+        
+        <div class="list-group">
+            {% for section in sections %}
+            {% if section.title != "章节介绍" and section.number != chapter.number|stringformat:".1f"|add:".0" %}
+            <a href="{% url 'courses:section_detail' section.id %}" class="list-group-item list-group-item-action">
+                <div class="d-flex w-100 justify-content-between">
+                    <h5 class="mb-1">{{ section.number }} {{ section.title }}</h5>
+                    <small class="text-muted">
+                        {{ section.knowledge_points.count }} 个知识点 |
+                        {{ section.exercises.count }} 道习题
+                    </small>
+                </div>
+            </a>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card sticky-top" style="top: 0;">
+            <div class="card-body">
+                <h5 class="card-title">章节信息</h5>
+                <p class="card-text">
+                    <strong>所属教材：</strong> {{ chapter.book.title }}<br>
+                    <strong>章节编号：</strong> 第{{ chapter.number }}章<br>
+                    <strong>小节数量：</strong> {{ filtered_sections_count }}
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

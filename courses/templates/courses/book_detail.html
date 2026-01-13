@@ -1,0 +1,47 @@
+{% extends 'courses/base.html' %}
+
+{% block title %}{{ book.title }} - 智学西大{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="{% url 'courses:index' %}">首页</a></li>
+        <li class="breadcrumb-item active">{{ book.title }}</li>
+    </ol>
+</nav>
+
+<div class="row">
+    <div class="col-md-9">
+        <h1 class="mb-4">{{ book.title }}</h1>
+        <p class="lead">{{ book.description }}</p>
+        
+        <div class="list-group">
+            {% for chapter in chapters %}
+            <a href="{% url 'courses:chapter_detail' chapter.id %}" class="list-group-item list-group-item-action">
+                <div style="text-align: right;">
+                <small class="text-muted">{{ chapter.filtered_sections_count }} 个小节</small>
+                </div>
+                {% if chapter.introduction %}
+                <div class="mb-1 chapter-introduction">{{ chapter.introduction|safe }}</div>
+                {% endif %}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card sticky-top" style="top: 0;">
+            <div class="card-body">
+                <h5 class="card-title">学习进度</h5>
+                <div class="progress mb-3">
+                    <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                </div>
+                <p class="card-text">
+                    <strong>总章节数：</strong> {{ chapters.count }}<br>
+                    <strong>总小节数：</strong> {{ total_sections }} 个
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
