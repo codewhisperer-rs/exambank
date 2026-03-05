@@ -39,16 +39,40 @@
 
 * **后端 (Backend):**
     * 语言: **Python 3.12**
-    * 框架: **Django 5.2** (启用 ASGI 异步模式)
+    * 框架: **Django 5.2** (原生 ASGI 异步视图 + 异步 ORM)
+    * 异步通信: **Django Channels 3.0.5** — 基于 WebSocket 的实时双向通信（习题提交、AI 助教流式对话）
+    * ASGI 服务器: **Daphne 3.0.2** (WebSocket/HTTP2)；生产环境亦可使用 **Gunicorn 22.0.0**
+    * 异步 HTTP 客户端: **httpx**、**aiohttp** — 用于异步调用大语言模型 API
+    * Channel Layer: InMemoryChannelLayer（开发）/ **channels-redis** 4.0.0（生产）
+
 * **大语言模型 (LLM):**
-    * 集成用于: 知识点提取、习题生成/推荐、AI 助教问答。
-    * *使用DeepSeek API，Grok API*
+    * **DeepSeek API** (`deepseek-chat`) — 知识点提取、AI 习题生成与推荐
+    * **Grok API** (xAI, `grok-3`) — 知识点提取、AI 习题生成与推荐
+    * 调用方式: 带重试机制的异步调用（`httpx` / `aiohttp`）
+
 * **数据库 (Database):**
-    * *SQLite*
+    * **SQLite** (开发/部署默认) — 通过 Django ORM 操作
+
 * **前端 (Frontend):**
-    * *HTML, JavaScript*
-* **其他 (Others):**
-    * *(可列出其他关键依赖库或技术，如：Celery (如果用于后台任务), Redis (如果用于缓存或队列) 等)*
+    * **Django 模板引擎** — 服务端渲染 HTML 页面
+    * **JavaScript** (原生 JS + WebSocket API) — 实时交互、WebSocket 通信
+    * **Markdown 渲染**: `markdown`、`django-markdownify`、`pymdown-extensions` — 在页面中渲染富文本内容
+
+* **AI 助教前端 (AI Chat Assistant Frontend):**
+    * **Next.js** (React 框架) — 独立的 AI 对话界面服务（端口 3000）
+    * 包管理器: **pnpm**
+    * 运行时: **Node.js 19**
+
+* **部署 & 运维 (DevOps):**
+    * 容器化: **Docker** + **Docker Compose** — 将 Django 后端与 Next.js 前端打包为统一镜像
+    * 多阶段构建: Node.js 构建阶段 + Python 运行阶段
+    * 环境变量管理: **python-dotenv**
+
+* **其他关键依赖 (Other Key Libraries):**
+    * `Pillow` — 书籍封面等图片处理
+    * `asgiref` — Django 异步 / 同步桥接工具 (`sync_to_async`, `async_to_sync`)
+    * `requests` — 同步 HTTP 请求备用
+    * `markdownify` — HTML ↔ Markdown 转换
 
 ## 安装部署
 
